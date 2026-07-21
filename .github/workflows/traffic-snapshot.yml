@@ -1,0 +1,86 @@
+name: Traffic snapshot
+
+on:
+  schedule:
+    - cron: "17 8 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: traffic-snapshot
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    name: Capture GitHub traffic
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Vigla
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+
+      - name: Validate private-archive configuration
+        env:
+          METRICS_REPOSITORY: ${{ secrets.VIGLA_METRICS_REPOSITORY }}
+          TRAFFIC_READ_TOKEN: ${{ secrets.VIGLA_TRAFFIC_READ_TOKEN }}
+          METRICS_WRITE_TOKEN: ${{ secrets.VIGLA_METRICS_WRITE_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ "$METRICS_REPOSITORY" =~ ^[^/]+/[^/]+$ ]] || {
+            echo "VIGLA_METRICS_REPOSITORY must use owner/name form." >&2
+            exit 1
+          }
+          [[ -n "$TRAFFIC_READ_TOKEN" ]] || {
+            echo "VIGLA_TRAFFIC_READ_TOKEN is not configured." >&2
+            exit 1
+          }
+          [[ -n "$METRICS_WRITE_TOKEN" ]] || {
+            echo "VIGLA_METRICS_WRITE_TOKEN is not configured." >&2
+            exit 1
+          }
+
+      - name: Checkout private metrics archive
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ secrets.VIGLA_METRICS_REPOSITORY }}
+          token: ${{ secrets.VIGLA_METRICS_WRITE_TOKEN }}
+          path: .metrics-store
+
+      - name: Capture snapshot and build report
+        env:
+          GITHUB_TOKEN: ${{ secrets.VIGLA_TRAFFIC_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          capture_date="$(date -u +%Y-%m-%d)"
+          capture_year="$(date -u +%Y)"
+          node scripts/github-traffic.mjs snapshot \
+            --repo "$GITHUB_REPOSITORY" \
+            --output ".metrics-store/data/traffic-${capture_year}.jsonl"
+          node scripts/github-traffic.mjs summary \
+            --input-dir .metrics-store/data \
+            --output ".metrics-store/reports/${capture_date}.md"
+          cp ".metrics-store/reports/${capture_date}.md" \
+            .metrics-store/reports/latest.md
+
+      - name: Commit snapshot to the private archive
+        working-directory: .metrics-store
+        run: |
+          set -euo pipefail
+          git config user.name "vigla-metrics[bot]"
+          git config user.email "vigla-metrics[bot]@users.noreply.github.com"
+          git add data reports
+          if git diff --cached --quiet; then
+            echo "No metrics changes to commit."
+            exit 0
+          fi
+          git commit -m "traffic: snapshot $(date -u +%Y-%m-%d)"
+          git push

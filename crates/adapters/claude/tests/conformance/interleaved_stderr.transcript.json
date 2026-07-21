@@ -1,0 +1,8 @@
+{
+  "lines": [
+    { "stream": "stdout", "text": "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"sess-mix\"}" },
+    { "stream": "stderr", "text": "warning: low disk space" },
+    { "stream": "stdout", "text": "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"ok\",\"usage\":{\"input_tokens\":2,\"output_tokens\":1}}" }
+  ],
+  "finalize": null
+}

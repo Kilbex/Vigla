@@ -1,0 +1,203 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    name: Rust
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust components
+        # Honour rust-toolchain.toml (currently 1.95.0). rustup is
+        # pre-installed on macos-latest; the first cargo invocation
+        # triggers it to download the channel pinned in
+        # rust-toolchain.toml, so we don't override it here.
+        run: rustup component add clippy rustfmt
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+
+      - name: Verify toolchain
+        run: rustc --version
+
+      - name: Format
+        run: cargo fmt --all -- --check
+
+      - name: Build mock-harness (required Tauri bundle resource)
+        # vigla-host declares target/release/mock-harness as a bundle
+        # resource, and tauri_build validates that path on EVERY compile
+        # of the host crate — so check/clippy/test all fail from a clean
+        # tree (or cold cache) until this binary exists. See
+        # crates/xtask/src/main.rs.
+        run: cargo build -p vigla-mock-harness --release --bin mock-harness
+
+      - name: Check
+        run: cargo check --workspace --all-targets
+
+      - name: Clippy
+        # Scope: production code + tests + benches.
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Clippy (release)
+        # Release surfaces warnings debug doesn't — e.g., unused imports
+        # behind #[cfg(debug_assertions)] guards.
+        run: cargo clippy --workspace --release --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace
+
+      - name: Reproduce launch recovery receipt
+        run: cargo xtask receipt
+
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@a6b2e2dcd845ddd7f509ce4f3ed3d922b80cc5d9 # v2.84.0
+        with:
+          tool: cargo-audit@0.22.2
+          fallback: none
+
+      - name: Audit
+        run: cargo audit --deny warnings
+
+  frontend:
+    name: Frontend
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Audit JavaScript dependencies
+        run: pnpm audit --audit-level low
+
+      - name: Test launch scripts
+        run: node --test scripts/*.test.mjs
+
+      - name: Check local documentation links
+        run: node scripts/check-links.mjs
+
+      - name: Test
+        working-directory: app
+        run: pnpm exec vitest run
+
+      - name: Build
+        working-directory: app
+        run: pnpm build
+
+      - name: Build read-only web replay
+        working-directory: app
+        run: pnpm build:webdemo
+
+      - name: Check site sources and generated AI context
+        working-directory: app
+        run: pnpm site:check
+
+  browser-e2e:
+    name: Browser E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install browser engines
+        run: pnpm -C app exec playwright install --with-deps chromium firefox webkit
+
+      - name: Test desktop browser contracts
+        run: pnpm -C app run e2e
+
+      - name: Test replay in Chromium, Firefox, and WebKit
+        run: pnpm -C app run e2e:webdemo
+
+      - name: Test Pages landing and replay in Chromium, Firefox, and WebKit
+        run: pnpm -C app run e2e:site
+
+  portable-rust:
+    name: Portable Rust (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Rust components
+        run: rustup component add clippy
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+
+      - name: Check portable crates
+        run: cargo check --workspace --all-targets --exclude vigla-host
+
+      - name: Clippy portable crates
+        run: cargo clippy --workspace --all-targets --exclude vigla-host -- -D warnings
+
+      - name: Test portable crates
+        run: cargo test --workspace --exclude vigla-host
+
+  supply-chain:
+    name: Supply chain
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Check advisories, licenses, bans, and sources
+        uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          rust-version: "1.95.0"
+          arguments: ""

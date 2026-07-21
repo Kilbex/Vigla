@@ -1,0 +1,3 @@
+{"type":"system","subtype":"init","session_id":"sess-done-1","tools":[],"mcp_servers":[],"model":"claude-sonnet-4-5"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"All tasks integrated, tests pass. Declaring completion.\n\n```json\n{\"action\":\"declare_complete\",\"summary\":\"3 tasks integrated; logout endpoint, session invalidation, and docs updated.\"}\n```"}]}}
+{"type":"result","subtype":"success","session_id":"sess-done-1","duration_ms":1100,"result":"Mission complete."}

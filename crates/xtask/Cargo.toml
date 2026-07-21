@@ -1,0 +1,13 @@
+[package]
+name = "xtask"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "Vigla workspace build and verification task runner"
+
+# Dependency-free on purpose: xtask is a thin wrapper around `cargo` and must
+# build instantly from a clean tree (it is the thing that makes the rest of the
+# workspace build). No clap, no anyhow — std arg parsing is plenty here.
+[dependencies]

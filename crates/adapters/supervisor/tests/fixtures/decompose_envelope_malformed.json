@@ -1,0 +1,10 @@
+{
+  "action": "decompose",
+  "envelope_fit": {
+    "scope": { "fit": "kinda_within", "note": "" },
+    "reversibility": { "fit": "within", "note": "" },
+    "risk": { "fit": "within", "note": "" },
+    "quality": { "fit": "within", "note": "" }
+  },
+  "tasks": []
+}

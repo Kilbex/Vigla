@@ -1,0 +1,18 @@
+[package]
+name = "vigla-adapter-copilot"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Vigla raw-log adapter for the GitHub Copilot CLI."
+
+[lib]
+name = "copilot_adapter"
+crate-type = ["rlib"]
+
+[dependencies]
+adapter-core = { package = "vigla-adapter-core", path = "../core" }
+event-schema = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

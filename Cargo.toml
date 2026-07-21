@@ -1,0 +1,103 @@
+[workspace]
+resolver = "2"
+members = [
+    "app/src-tauri",
+    "crates/orchestrator",
+    "crates/mock-harness",
+    "crates/event-schema",
+    "crates/adapters/core",
+    "crates/adapters/claude",
+    "crates/adapters/codex",
+    "crates/adapters/gemini",
+    "crates/adapters/antigravity",
+    "crates/adapters/kiro",
+    "crates/adapters/copilot",
+    "crates/adapters/supervisor",
+    "crates/adapters/conformance",
+    "crates/xtask",
+]
+# tests/samples/ holds standalone target crates for the real-CLI
+# integration tests. They live in the repo for reproducibility but
+# are not part of the Vigla build.
+exclude = ["tests/samples"]
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.95.0"
+authors = ["Kilbex"]
+license = "Apache-2.0"
+publish = false
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Binding-generation tooling. specta + tauri-specta are still pre-1.0
+# upstream (RC line that has been moving for >18 months) and
+# specta-typescript is 0.0.x. Cargo's caret-with-prerelease rule means
+# `"2.0.0-rc.22"` accepts ANY later `2.0.0-rc.*` — that's silent drift
+# across the entire IPC binding surface. We exact-pin (`=` prefix) so a
+# bump is always a deliberate, reviewed change with the checklist below.
+#
+# Upgrade checklist (run as its OWN PR — never bundle with feature work):
+#   1. Bump all three versions in lockstep; specta and tauri-specta
+#      release together and their derive macros assume matching rc.
+#   2. `cargo build --workspace --all-targets` — fix any derive errors
+#      surfaced by macro changes.
+#   3. Run the binding-generation step (whichever build script in
+#      app/src-tauri produces `app/src/bindings.ts`) and inspect the
+#      diff against the previous generated output.
+#   4. `pnpm --filter vigla-app build` to confirm the new
+#      generated TypeScript still typechecks the frontend.
+#   5. `cargo test --workspace` AND `pnpm --filter vigla-app test`
+#      — both sides of the IPC seam must stay green.
+#   6. Touched files referenced from these crates (grep `specta::` /
+#      `tauri_specta::`): crates/orchestrator/{mission_event,mission,vendor_profile}.rs,
+#      crates/event-schema/src/{lib,memory}.rs, app/src-tauri/src/{lib,memory_commands,playbook_store}.rs.
+specta = { version = "=2.0.0-rc.22", features = ["derive"] }
+specta-typescript = "=0.0.9"
+tauri-specta = { version = "=2.0.0-rc.21", features = ["derive", "typescript"] }
+
+event-schema = { package = "vigla-event-schema", path = "crates/event-schema" }
+
+# Persistence.
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "macros", "migrate"] }
+# Supervision uses `process` (tokio::process::Command) and
+# `io-util` (BufReader + AsyncBufReadExt::lines).
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "fs", "process", "io-util"] }
+thiserror = "2"
+tempfile = "3"
+# `futures::future::join_all` supports parallel body-file
+# reads in `MemoryStore::notes_by_ids`. Already in the dep graph via
+# sqlx; the top-level entry just makes the API directly accessible.
+futures = { version = "0.3", default-features = false, features = ["std"] }
+# Compressed JSONL archives for memory_pending /
+# memory_events. zstd is ~25 KB binary, well-maintained, and ~10x
+# better than gzip on JSON-shaped input.
+zstd = { version = "0.13", default-features = false }
+
+# Worker / task IDs (UUIDv7 = time-ordered).
+uuid = { version = "1", features = ["v7"] }
+
+# Content-addressed memory bundle and body hashes use 32 hex characters
+# (BLAKE3 truncated to 128 bits).
+blake3 = "1"
+
+# Structured logging. `tracing` replaces every `eprintln!` in
+# production code paths so diagnostics survive `.app` bundle launches
+# (where stderr is /dev/null). The Tauri host installs a subscriber
+# that fans out to both a daily-rotating file under
+# ~/Library/Logs/Vigla/ and stderr (for dev builds).
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "registry"] }
+tracing-appender = "0.2"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true
+
+[profile.dev]
+incremental = true

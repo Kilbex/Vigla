@@ -1,0 +1,45 @@
+name: Bug report
+description: Report a reproducible problem in Vigla.
+title: "bug: "
+labels: ["bug", "needs triage"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Keep this as short as possible.
+      placeholder: |
+        1. Start Vigla with ...
+        2. Dispatch ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Vigla version/commit, Rust version, Node/pnpm version, and any relevant CLI versions.
+      placeholder: |
+        macOS:
+        Vigla commit:
+        rustc:
+        node:
+        pnpm:
+        claude/codex/antigravity/gemini (legacy)/other CLI:
+    validations:
+      required: false
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Paste only the relevant lines. Redact secrets.
+      render: shell
+    validations:
+      required: false

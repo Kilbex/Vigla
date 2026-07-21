@@ -1,0 +1,55 @@
+[advisories]
+# R3 — cargo-audit ignore list. Every entry below is a known, currently-
+# unfixable upstream advisory. CI runs `cargo audit --deny warnings` so
+# any NEW advisory still hard-fails; this list only tolerates the
+# pre-existing baseline. Audit and prune this file when bumping the
+# offending dep tree (sqlx, tauri) — if upstream releases a fix the
+# entry should be deleted, not retained.
+ignore = [
+    # `rsa 0.9.x` Marvin timing-side-channel. Pulled in transitively
+    # through sqlx-mysql (we use sqlx-sqlite — the mysql features are
+    # in sqlx-macros-core and not used at runtime). No upstream fix
+    # available. Re-evaluate when sqlx 0.9 lands or the rsa crate
+    # ships a constant-time impl.
+    "RUSTSEC-2023-0071",
+
+    # `quick-xml` XML-DoS advisories (unbounded namespace allocation /
+    # quadratic duplicate-attribute scan). Both require attacker-controlled
+    # XML fed to the parser. Two transitive versions are pinned by tauri and
+    # neither is a Vigla attack surface:
+    #   * 0.37.x ← tauri-winrt-notification (Windows-only WinRT toasts) —
+    #     never compiled on the macOS target, like the gtk-rs entries below.
+    #   * 0.39.x ← plist ← tauri — parses the app's OWN signed bundle
+    #     Info.plist at build/bundle time, never untrusted network input.
+    # Fix is >=0.41.0, but the dependents require `^0.37` / `^0.39.2`, so no
+    # semver-compatible bump exists yet. Clear when tauri's quick-xml/plist
+    # tree moves. Vigla itself parses vendor CLI JSON, not XML.
+    "RUSTSEC-2026-0194",
+    "RUSTSEC-2026-0195",
+
+    # gtk-rs GTK3 bindings: tauri 2.x still depends on these on Linux.
+    # We ship macOS — the GTK paths never load on the host platform.
+    # Will clear when tauri removes the GTK3 transitive dep.
+    "RUSTSEC-2024-0411",
+    "RUSTSEC-2024-0412",
+    "RUSTSEC-2024-0413",
+    "RUSTSEC-2024-0414",
+    "RUSTSEC-2024-0415",
+    "RUSTSEC-2024-0416",
+    "RUSTSEC-2024-0417",
+    "RUSTSEC-2024-0418",
+    "RUSTSEC-2024-0419",
+    "RUSTSEC-2024-0420",
+    # `glib` 0.18 unsoundness (related GTK3 bindings transitive).
+    "RUSTSEC-2024-0429",
+
+    # Macro hygiene utilities marked unmaintained but still pulled
+    # transitively. No active vulnerability.
+    "RUSTSEC-2024-0370", # proc-macro-error
+    "RUSTSEC-2024-0436", # paste
+    "RUSTSEC-2025-0075", # unic-char-property
+    "RUSTSEC-2025-0080", # (transitively pulled — re-check when bumping)
+    "RUSTSEC-2025-0081",
+    "RUSTSEC-2025-0098",
+    "RUSTSEC-2025-0100",
+]

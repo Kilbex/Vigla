@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Vigla app icon</title>
+  <desc id="desc">A teal mission-control reticle framing a precise V-shaped command mark on a deep navy field.</desc>
+  <defs>
+    <linearGradient id="field" x1="180" y1="112" x2="844" y2="912" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#182433"/>
+      <stop offset="0.55" stop-color="#0c121b"/>
+      <stop offset="1" stop-color="#06090f"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="310" y1="270" x2="722" y2="750" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#67ead8"/>
+      <stop offset="0.5" stop-color="#38c5b4"/>
+      <stop offset="1" stop-color="#2aa395"/>
+    </linearGradient>
+    <radialGradient id="halo" cx="0" cy="0" r="1" gradientTransform="translate(512 508) rotate(90) scale(390)" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#38c5b4" stop-opacity="0.12"/>
+      <stop offset="0.7" stop-color="#38c5b4" stop-opacity="0.025"/>
+      <stop offset="1" stop-color="#38c5b4" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1024" height="1024" fill="url(#field)"/>
+  <path d="M174 292V202c0-20 16-36 36-36h92M722 166h92c20 0 36 16 36 36v90M850 724v98c0 20-16 36-36 36h-92M302 858h-92c-20 0-36-16-36-36v-98"
+        fill="none" stroke="#38c5b4" stroke-width="18" stroke-linecap="round" opacity="0.52"/>
+  <circle cx="512" cy="508" r="386" fill="url(#halo)"/>
+
+  <circle cx="512" cy="508" r="278" fill="none" stroke="#243042" stroke-width="14"/>
+  <circle cx="512" cy="508" r="214" fill="none" stroke="url(#accent)" stroke-width="18"/>
+  <path d="M512 184v66M512 766v66M188 508h66M770 508h66"
+        fill="none" stroke="#9aa6b6" stroke-width="16" stroke-linecap="round"/>
+  <path d="M330 508h70M624 508h70M512 326v70M512 620v70"
+        fill="none" stroke="#38c5b4" stroke-width="12" stroke-linecap="round" opacity="0.8"/>
+
+  <path d="M346 382 506 662c3 6 11 6 15 0l160-280"
+        fill="none" stroke="#eef2f7" stroke-width="78" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M368 387 512 638 656 387"
+        fill="none" stroke="url(#accent)" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="512" cy="508" r="25" fill="#06090f" stroke="#67ead8" stroke-width="14"/>
+  <circle cx="512" cy="508" r="7" fill="#eef2f7"/>
+</svg>

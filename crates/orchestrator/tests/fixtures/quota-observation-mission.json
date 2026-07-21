@@ -1,0 +1,23 @@
+{
+  "_comment": [
+    "L1 row-4 quota-observation mission template. scripts/observe-quota.sh",
+    "sets VIGLA_L1_QUOTA_MOCK=1, which enables the hidden",
+    "claude_quota_exhausted worker backend for this dry-run only.",
+    "The first worker pass emits a Claude-shaped quota signal, the",
+    "mission pauses with a countdown, then the resumed pass falls",
+    "through to the normal mock worker so the run can complete.",
+    "Feed this JSON through the Deploy flow or invoke start_mission",
+    "over Tauri IPC from the running app."
+  ],
+  "title": "L1 row-4 quota observation",
+  "objective": "Append the current ISO-8601 timestamp as a new line at the end of notes/quota-pings.md. If the file or its parent directory does not exist, create them first. Do not touch any other file. Commit the change with the message \"quota ping <timestamp>\".",
+  "target_ref": "main",
+  "tests": null,
+  "supervisor_model": "claude",
+  "worker_model": "claude_quota_exhausted",
+  "worker_count": 1,
+  "confirm_plan": null,
+  "scope_paths": [
+    "notes/quota-pings.md"
+  ]
+}

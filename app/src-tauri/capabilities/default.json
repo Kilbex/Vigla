@@ -1,0 +1,11 @@
+{
+  "identifier": "default",
+  "description": "default capability set",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "dialog:default",
+    "notification:default"
+  ]
+}

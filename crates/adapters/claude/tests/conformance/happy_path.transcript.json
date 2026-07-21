@@ -1,0 +1,9 @@
+{
+  "lines": [
+    { "stream": "stdout", "text": "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"sess-conf\"}" },
+    { "stream": "stdout", "text": "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"Reading the file.\"}]}}" },
+    { "stream": "stdout", "text": "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"name\":\"Read\",\"input\":{\"file_path\":\"README.md\"}}]}}" },
+    { "stream": "stdout", "text": "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"Summarized.\",\"duration_ms\":1200,\"usage\":{\"input_tokens\":10,\"output_tokens\":5},\"total_cost_usd\":0.01}" }
+  ],
+  "finalize": null
+}

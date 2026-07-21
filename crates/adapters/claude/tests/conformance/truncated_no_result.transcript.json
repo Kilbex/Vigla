@@ -1,0 +1,7 @@
+{
+  "lines": [
+    { "stream": "stdout", "text": "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"sess-trunc\"}" },
+    { "stream": "stdout", "text": "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"Partial output before crash.\"}]}}" }
+  ],
+  "finalize": "Clean"
+}

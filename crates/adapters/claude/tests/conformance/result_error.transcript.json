@@ -1,0 +1,7 @@
+{
+  "lines": [
+    { "stream": "stdout", "text": "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"sess-err\"}" },
+    { "stream": "stdout", "text": "{\"type\":\"result\",\"is_error\":true,\"subtype\":\"error_during_execution\",\"result\":\"tool failed\",\"usage\":{\"input_tokens\":3,\"output_tokens\":0}}" }
+  ],
+  "finalize": null
+}

@@ -1,0 +1,10 @@
+* text=auto eol=lf
+
+*.gif binary
+*.icns binary
+*.png binary
+*.webp binary
+
+# Generated from the Rust IPC surface; keep GitHub language statistics focused
+# on the authored implementation.
+app/src/bindings.ts linguist-generated=true whitespace=-trailing-space

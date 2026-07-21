@@ -1,0 +1,10 @@
+packages:
+  - "app"
+
+overrides:
+  # jsdom 29 permits this patched undici release but currently resolves an
+  # older vulnerable 7.x version without a workspace-level floor.
+  undici: "7.28.0"
+  # Vite 8.1 still requests esbuild 0.27; 0.28.1 closes the Windows dev-server
+  # traversal advisory while preserving the API surface Vite consumes.
+  esbuild: "0.28.1"

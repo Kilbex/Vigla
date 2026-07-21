@@ -1,0 +1,6 @@
+{"type":"thread.started","thread_id":"019e0852-44d2-7061-9178-a6e637fa0fd3"}
+{"type":"turn.started"}
+{"type":"item.started","item":{"id":"item_0","type":"command_execution","command":"/bin/zsh -lc ls","aggregated_output":"","exit_code":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_0","type":"command_execution","command":"/bin/zsh -lc ls","aggregated_output":"","exit_code":0,"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"The current directory is empty."}}
+{"type":"turn.completed","usage":{"input_tokens":49542,"cached_input_tokens":40704,"output_tokens":53,"reasoning_output_tokens":0}}

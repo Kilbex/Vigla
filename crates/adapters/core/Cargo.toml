@@ -1,0 +1,19 @@
+[package]
+name = "vigla-adapter-core"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Vigla adapter trait — raw stdout/stderr line bytes → canonical events."
+
+[lib]
+name = "adapter_core"
+crate-type = ["rlib"]
+
+[dependencies]
+event-schema = { workspace = true }
+# Tier-2D — line-level worker memory intent parser. Pure JSON
+# extraction; no async, no I/O. Adapter-core stays a leaf.
+serde = { workspace = true }
+serde_json = { workspace = true }

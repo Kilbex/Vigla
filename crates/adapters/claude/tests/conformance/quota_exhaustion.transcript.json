@@ -1,0 +1,7 @@
+{
+  "lines": [
+    { "stream": "stdout", "text": "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"sess-429\"}" },
+    { "stream": "stdout", "text": "{\"type\":\"result\",\"is_error\":true,\"api_error_status\":\"429\",\"result\":\"rate limit\",\"usage\":{\"input_tokens\":0,\"output_tokens\":0}}" }
+  ],
+  "finalize": null
+}

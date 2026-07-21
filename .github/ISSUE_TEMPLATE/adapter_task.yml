@@ -1,0 +1,43 @@
+name: Adapter task
+description: Add or improve a vendor CLI adapter.
+title: "adapter: "
+labels: ["adapter", "needs triage"]
+body:
+  - type: dropdown
+    id: vendor
+    attributes:
+      label: Vendor CLI
+      options:
+        - Claude
+        - Codex
+        - Antigravity
+        - Kiro
+        - Copilot
+        - Gemini (legacy)
+        - Opencode
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: fixture
+    attributes:
+      label: Fixture or stream shape
+      description: Paste a short redacted sample or link to a fixture. Do not include secrets.
+      render: json
+    validations:
+      required: false
+  - type: textarea
+    id: expected_events
+    attributes:
+      label: Expected canonical events
+      description: Which state, log, file, test, cost, completion, or failure events should Vigla emit?
+    validations:
+      required: true
+  - type: checkboxes
+    id: boundaries
+    attributes:
+      label: Adapter boundary checklist
+      options:
+        - label: The adapter change is line-to-event translation only.
+        - label: Process spawning stays outside the adapter.
+        - label: Tests can run without real vendor credentials.

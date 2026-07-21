@@ -1,0 +1,69 @@
+{
+  "context_requests": [],
+  "events": [
+    {
+      "payload": {
+        "state": "idle"
+      },
+      "schema_version": "2.0",
+      "seq": 0,
+      "task_id": "t-conf",
+      "ts": "<ts>",
+      "type": "state_change",
+      "worker_id": "w-conf"
+    },
+    {
+      "payload": {
+        "from": "idle",
+        "state": "executing"
+      },
+      "schema_version": "2.0",
+      "seq": 1,
+      "task_id": "t-conf",
+      "ts": "<ts>",
+      "type": "state_change",
+      "worker_id": "w-conf"
+    },
+    {
+      "payload": {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "usd": 0.0
+      },
+      "schema_version": "2.0",
+      "seq": 2,
+      "task_id": "t-conf",
+      "ts": "<ts>",
+      "type": "cost",
+      "worker_id": "w-conf"
+    },
+    {
+      "payload": {
+        "category": "rate_limit",
+        "error": "rate limit",
+        "retryable": false
+      },
+      "schema_version": "2.0",
+      "seq": 3,
+      "task_id": "t-conf",
+      "ts": "<ts>",
+      "type": "failure",
+      "worker_id": "w-conf"
+    },
+    {
+      "payload": {
+        "from": "executing",
+        "state": "failed"
+      },
+      "schema_version": "2.0",
+      "seq": 4,
+      "task_id": "t-conf",
+      "ts": "<ts>",
+      "type": "state_change",
+      "worker_id": "w-conf"
+    }
+  ],
+  "memory_intents": [],
+  "quota_signal": "QuotaSignal { estimated_reset_at_ms: None }",
+  "session_id": "sess-429"
+}

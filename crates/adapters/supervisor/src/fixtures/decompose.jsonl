@@ -1,0 +1,4 @@
+{"type":"system","subtype":"init","session_id":"sess-decompose-1","tools":[],"mcp_servers":[],"model":"claude-sonnet-4-5","cwd":"/tmp/sandbox"}
+{"type":"user","message":{"role":"user","content":"Decompose this mission: add user logout endpoint"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"I'll split this into three tasks. Each is independently mergeable.\n\n```json\n{\"action\":\"decompose\",\"tasks\":[{\"title\":\"Plan integration\",\"description\":\"map session invalidation\"},{\"title\":\"Implement changes\",\"description\":\"add /api/logout\"},{\"title\":\"Update documentation\",\"description\":\"document the endpoint\"}]}\n```"}]},"session_id":"sess-decompose-1"}
+{"type":"result","subtype":"success","session_id":"sess-decompose-1","duration_ms":2100,"result":"Decomposition complete."}

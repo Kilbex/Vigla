@@ -1,0 +1,6 @@
+{
+  "action": "decompose",
+  "tasks": [
+    { "title": "Plan integration", "description": "Sketch the integration in a comment." }
+  ]
+}

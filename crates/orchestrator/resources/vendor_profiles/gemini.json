@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "id": "gemini",
+  "display_name": "Gemini CLI (legacy)",
+  "cli_binary": "gemini",
+  "adapter_crate": "adapters/gemini",
+  "commands": {
+    "supervisor": {
+      "supported": false,
+      "args": []
+    },
+    "mission_worker": {
+      "supported": true,
+      "args": [
+        "--skip-trust",
+        "-p",
+        "${worker_playbook_then_prompt}",
+        "--output-format",
+        "stream-json",
+        "--approval-mode",
+        "yolo",
+        "${model_args}"
+      ]
+    },
+    "standalone_worker": {
+      "supported": true,
+      "args": [
+        "--skip-trust",
+        "-p",
+        "${worker_playbook_then_prompt}",
+        "--output-format",
+        "stream-json",
+        "--approval-mode",
+        "yolo",
+        "${model_args}"
+      ]
+    }
+  },
+  "declared_side_effects": [
+    {
+      "kind": "paid_api_call",
+      "mode": "expected",
+      "description": "Gemini CLI calls Google's paid or quota-metered inference service for normal operation."
+    },
+    {
+      "kind": "network_egress",
+      "mode": "expected",
+      "description": "Gemini CLI communicates with Google services and may use networked commands when the task explicitly requires it."
+    },
+    {
+      "kind": "package_install",
+      "mode": "possible",
+      "description": "Workers may install packages only when the assigned task explicitly requires it."
+    },
+    {
+      "kind": "external_mutation",
+      "mode": "possible",
+      "description": "Workers may mutate external systems only through commands the task explicitly asks for; Vigla records this as visible, not reversible, authority."
+    }
+  ]
+}

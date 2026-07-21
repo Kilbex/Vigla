@@ -1,0 +1,17 @@
+{
+  "action": "decompose",
+  "overview": "Add an OAuth callback handler and migrate the existing session table.",
+  "tech_stack": [
+    { "layer": "auth_provider", "choice": "Auth0", "rationale": "matches existing setup", "is_new": false },
+    { "layer": "migrations",    "choice": "sqlx-cli", "rationale": "introduce for this mission", "is_new": true }
+  ],
+  "envelope_fit": {
+    "scope":         { "fit": "within",     "note": "all new files under src/auth/" },
+    "reversibility": { "fit": "near_limit", "note": "schema migration; rollback exists" },
+    "risk":          { "fit": "within",     "note": "no secrets touched" },
+    "quality":       { "fit": "within",     "note": "test task included" }
+  },
+  "tasks": [
+    { "title": "Add /auth/callback route", "description": "Wire up the OAuth callback handler in src/auth/." }
+  ]
+}

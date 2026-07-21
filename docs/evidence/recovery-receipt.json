@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "claim": "27/27 seeded failure trajectories escalated within the default retry bounds",
+  "cases_total": 27,
+  "cases_passed": 27,
+  "maximum_decisions_before_escalation": 3,
+  "default_retry_policy": {
+    "missing_file_retries": 1,
+    "transient_command_retries": 1,
+    "persistent_command_retries": 0,
+    "merge_conflict_retries": 0,
+    "permissions_retries": 0,
+    "task_drift_retries": 1,
+    "vendor_crash_retries": 2
+  },
+  "categories": [
+    {
+      "failure_class": "missing_file",
+      "seeds": 4,
+      "max_decisions": 2,
+      "terminal_bound": "scope"
+    },
+    {
+      "failure_class": "command_error",
+      "seeds": 8,
+      "max_decisions": 2,
+      "terminal_bound": "quality"
+    },
+    {
+      "failure_class": "merge_conflict",
+      "seeds": 3,
+      "max_decisions": 1,
+      "terminal_bound": "quality"
+    },
+    {
+      "failure_class": "permissions",
+      "seeds": 3,
+      "max_decisions": 1,
+      "terminal_bound": "risk"
+    },
+    {
+      "failure_class": "task_drift",
+      "seeds": 3,
+      "max_decisions": 2,
+      "terminal_bound": "scope"
+    },
+    {
+      "failure_class": "vendor_crash",
+      "seeds": 6,
+      "max_decisions": 3,
+      "terminal_bound": "risk"
+    }
+  ],
+  "excluded_from_denominator": [
+    "inadequate_context is an informational supervisor request, not a terminal failure",
+    "quota_exhaustion is a planned pause with a reset time, not a terminal failure"
+  ]
+}

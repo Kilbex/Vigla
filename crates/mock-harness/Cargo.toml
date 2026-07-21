@@ -1,0 +1,21 @@
+[package]
+name = "vigla-mock-harness"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Vigla mock worker: emits scripted JSONL events on stdout"
+
+[lib]
+name = "mock_harness"
+path = "src/lib.rs"
+crate-type = ["rlib"]
+
+[[bin]]
+name = "mock-harness"
+path = "src/main.rs"
+
+[dependencies]
+event-schema = { workspace = true }
+serde_json = { workspace = true }

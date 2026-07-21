@@ -1,0 +1,3 @@
+{"type":"system","subtype":"init","session_id":"sess-reassign-1","tools":[],"mcp_servers":[],"model":"claude-sonnet-4-5"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"This worker has failed twice with progressively confused output — the session has clearly lost coherence. Spawning a fresh worker.\n\n```json\n{\"action\":\"review\",\"worker_id\":\"mock-1\",\"decision\":\"reassign\",\"from_worker\":\"mock-1\",\"to_vendor\":\"codex\"}\n```"}]}}
+{"type":"result","subtype":"success","session_id":"sess-reassign-1","duration_ms":1500,"result":"Reassignment requested."}

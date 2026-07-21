@@ -1,0 +1,7 @@
+# `cargo xtask …` → run the workspace task runner (crates/xtask/). See that crate's
+# docs. The runner builds the
+# release mock-harness (a Tauri bundle resource that tauri_build validates on
+# every host compile) before invoking the workspace build/test, so a clean
+# checkout is green without a manual prerequisite.
+[alias]
+xtask = "run --quiet --package xtask --"

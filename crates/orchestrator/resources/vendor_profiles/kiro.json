@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "id": "kiro",
+  "display_name": "Kiro CLI",
+  "cli_binary": "kiro-cli",
+  "adapter_crate": "adapters/kiro",
+  "commands": {
+    "supervisor": {
+      "supported": false,
+      "args": []
+    },
+    "mission_worker": {
+      "supported": true,
+      "args": [
+        "chat",
+        "--no-interactive",
+        "--trust-all-tools",
+        "--require-mcp-startup",
+        "${model_args}",
+        "${prompt}"
+      ]
+    },
+    "standalone_worker": {
+      "supported": true,
+      "args": [
+        "chat",
+        "--no-interactive",
+        "--trust-all-tools",
+        "--require-mcp-startup",
+        "${model_args}",
+        "${prompt}"
+      ]
+    }
+  },
+  "declared_side_effects": [
+    {
+      "kind": "paid_api_call",
+      "mode": "expected",
+      "description": "Kiro CLI calls its hosted inference service for normal operation."
+    },
+    {
+      "kind": "network_egress",
+      "mode": "expected",
+      "description": "Kiro CLI communicates with hosted services and may use networked commands when the task explicitly requires it."
+    },
+    {
+      "kind": "package_install",
+      "mode": "possible",
+      "description": "Workers may install packages only when the assigned task explicitly requires it."
+    },
+    {
+      "kind": "external_mutation",
+      "mode": "possible",
+      "description": "Workers may mutate external systems only through commands the task explicitly asks for; Vigla records this as visible, not reversible, authority."
+    }
+  ]
+}

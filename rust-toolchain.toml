@@ -1,0 +1,23 @@
+# Pinned to a specific stable release rather than floating `stable`. A
+# floating channel silently re-resolves on every machine to whatever
+# rustc that host last installed — that drift is exactly what hides
+# "works on my machine" regressions when a new stable lands a soundness
+# fix, a borrow-check tightening, or a lint promotion.
+#
+# rustup auto-downloads this version on first cargo invocation, so
+# contributors and CI converge on the same compiler with zero setup.
+#
+# Upgrade procedure:
+#   1. Bump this line + run `cargo +<new> check --workspace --all-targets`.
+#   2. Run `cargo +<new> clippy --workspace -- -D warnings`.
+#   3. Run `cargo +<new> test --workspace`.
+#   4. Land as its own PR — never bundle a toolchain bump with feature
+#      work, so the bisect surface for any new regression stays tight.
+#
+# The workspace's `rust-version` (in Cargo.toml [workspace.package]) is
+# the *minimum* supported compiler — independent of this pin. Bumping
+# rust-version restricts downstream adopters; bumping this pin does not.
+[toolchain]
+channel = "1.95.0"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

@@ -1,0 +1,6 @@
+[package]
+name = "sandbox"
+version = "0.0.1"
+edition = "2021"
+publish = false
+description = "Step-11 gate target — Claude CLI fixes a deliberately failing test here."

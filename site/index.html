@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Vigla is the supervised merge layer for AI coding agents: cross-vendor workers, independent audit gates, and mission-level revert."
+    />
+    <meta name="theme-color" content="#06090f" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="robots" content="index,follow" />
+    <link rel="canonical" href="https://kilbex.github.io/Vigla/" />
+    <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./styles.css" />
+    <link rel="alternate" type="text/plain" href="./llms.txt" title="Vigla for AI assistants" />
+    <link rel="alternate" type="text/plain" href="./llms-full.txt" title="Full Vigla context" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Vigla" />
+    <meta property="og:title" content="Vigla — supervised AI coding agent operations" />
+    <meta
+      property="og:description"
+      content="Cross-vendor worker teams. Every submission audited. Every mission revertable. Local-first and Apache-2.0."
+    />
+    <meta property="og:url" content="https://kilbex.github.io/Vigla/" />
+    <meta property="og:image" content="https://kilbex.github.io/Vigla/media/social-preview.png" />
+    <meta property="og:image:width" content="1280" />
+    <meta property="og:image:height" content="640" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Vigla — supervise the merge, not every terminal" />
+    <meta
+      name="twitter:description"
+      content="A local-first, cross-vendor control plane for AI coding agents."
+    />
+    <meta name="twitter:image" content="https://kilbex.github.io/Vigla/media/social-preview.png" />
+    <title>Vigla — supervised AI coding agent operations</title>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "Vigla",
+        "applicationCategory": "DeveloperApplication",
+        "operatingSystem": "macOS 12 or later",
+        "license": "https://www.apache.org/licenses/LICENSE-2.0",
+        "codeRepository": "https://github.com/Kilbex/Vigla",
+        "url": "https://kilbex.github.io/Vigla/",
+        "description": "A local-first supervised merge layer for cross-vendor AI coding agents."
+      }
+    </script>
+    <script src="./site.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="site-header">
+      <a class="brand" href="./" aria-label="Vigla home">
+        <img src="./icon.svg" width="36" height="36" alt="" />
+        <span>Vigla</span>
+      </a>
+      <nav aria-label="Primary navigation">
+        <a href="#how-it-works">How it works</a>
+        <a href="#compare">Compare</a>
+        <a href="#build">Build</a>
+        <a href="https://github.com/Kilbex/Vigla">GitHub</a>
+      </nav>
+    </header>
+
+    <main id="main" tabindex="-1">
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <p class="eyebrow"><span aria-hidden="true"></span> 27/27 bounded recovery receipt · open source</p>
+          <h1 id="hero-title">Supervise the merge.<br />Not every terminal.</h1>
+          <p class="hero-lede">
+            Vigla is the supervised merge layer for AI coding agents: cross-vendor worker teams,
+            every submission audited against your bounds, every mission revertable in one click.
+          </p>
+          <div class="hero-actions" aria-label="Get started">
+            <a class="button button-primary" href="./demo/">
+              Watch the replay
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7 4 6 6-6 6" /></svg>
+            </a>
+            <a class="button button-secondary" href="#build">Build on macOS</a>
+          </div>
+          <ul class="hero-facts" aria-label="Product facts">
+            <li><span aria-hidden="true">01</span>No cloud control plane</li>
+            <li><span aria-hidden="true">02</span>Receipt is CI-checked</li>
+            <li><span aria-hidden="true">03</span>Apache-2.0</li>
+          </ul>
+        </div>
+
+        <div class="hero-visual">
+          <div class="visual-status" aria-hidden="true">
+            <span>OPERATIONS ROOM</span>
+            <span class="status-live">RECORDED RUN · VERIFIED</span>
+          </div>
+          <div class="preview-frame">
+            <img
+              src="./media/vigla-demo-poster.webp"
+              width="1280"
+              height="800"
+              alt="Vigla Operations Room showing Claude, Codex, Antigravity, and Copilot workers executing one mission"
+              fetchpriority="high"
+              data-replay-preview
+            />
+            <button
+              class="preview-control"
+              type="button"
+              aria-pressed="false"
+              data-replay-src="./media/vigla-demo.webp"
+              data-poster-src="./media/vigla-demo-poster.webp"
+            >
+              <span class="preview-control-icon" aria-hidden="true">▶</span>
+              <span class="preview-control-copy">
+                <strong>Play 15-second preview</strong>
+                <small>2.1 MB · recorded replay</small>
+              </span>
+            </button>
+            <p class="sr-status" aria-live="polite" data-preview-status></p>
+          </div>
+          <div class="visual-caption">
+            <span>Canonical events</span>
+            <span>Isolated worktrees</span>
+            <span>Bounded authority</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="signal-strip" aria-label="Core guarantees">
+        <p>One mission</p>
+        <span aria-hidden="true"></span>
+        <p>Many vendor CLIs</p>
+        <span aria-hidden="true"></span>
+        <p>One audited merge</p>
+        <span aria-hidden="true"></span>
+        <p>One-click revert</p>
+      </section>
+
+      <section class="section trust-section" id="how-it-works" aria-labelledby="trust-title">
+        <div class="section-heading">
+          <p class="section-index">01 · CONTROL</p>
+          <h2 id="trust-title">Set the bounds. Let the fleet work.</h2>
+          <p>
+            You choose the mission and authority envelope. Vigla decomposes the work, isolates
+            every worker, audits each submission, and interrupts you only when a bound trips.
+          </p>
+        </div>
+
+        <ol class="control-grid">
+          <li>
+            <span class="step-number">01</span>
+            <h3>Deploy across vendors</h3>
+            <p>Mix Claude Code, Codex CLI, Antigravity, and profile-backed agents in one roster.</p>
+          </li>
+          <li>
+            <span class="step-number">02</span>
+            <h3>Work in isolation</h3>
+            <p>Each worker gets a dedicated git worktree and a canonical, typed event stream.</p>
+          </li>
+          <li>
+            <span class="step-number">03</span>
+            <h3>Audit before merge</h3>
+            <p>The supervisor checks scope, reversibility, risk, and quality before accepting work.</p>
+          </li>
+          <li>
+            <span class="step-number">04</span>
+            <h3>Revert as a mission</h3>
+            <p>Snapshot-tagged integration makes the whole accepted mission reversible at once.</p>
+          </li>
+        </ol>
+      </section>
+
+      <section class="section evidence-section" aria-labelledby="evidence-title">
+        <div class="evidence-image frame">
+          <img
+            src="./media/mission-inbox.webp"
+            width="1600"
+            height="1000"
+            loading="lazy"
+            alt="Vigla mission inbox with an audit breakdown, completed subtasks, residual-risk verdict, and revert control"
+          />
+        </div>
+        <div class="evidence-copy">
+          <p class="section-index">02 · EVIDENCE</p>
+          <h2 id="evidence-title">Judge outcomes, not keystrokes.</h2>
+          <p>
+            Every completed mission carries the record a reviewer actually needs: integrated
+            tests, files changed, audit dimensions, unresolved issues, residual risk, and the
+            exact snapshot used for rollback.
+          </p>
+          <dl class="evidence-list">
+            <div><dt>Events</dt><dd>Typed and replayable</dd></div>
+            <div><dt>Review</dt><dd>Independent audit verdict</dd></div>
+            <div><dt>Recovery</dt><dd>27/27 seeded paths bounded</dd></div>
+            <div><dt>Telemetry</dt><dd>None added by Vigla</dd></div>
+          </dl>
+          <a class="text-link" href="https://github.com/Kilbex/Vigla/blob/main/docs/evidence/recovery-receipt.md">
+            Inspect the launch receipt
+            <span aria-hidden="true">↗</span>
+          </a>
+        </div>
+      </section>
+
+      <section class="section compare-section" id="compare" aria-labelledby="compare-title">
+        <div class="section-heading compact">
+          <p class="section-index">03 · DIFFERENCE</p>
+          <h2 id="compare-title">Parallelism is common. Governance is not.</h2>
+          <p>
+            Vendor-native tools are excellent at running their own agents. Vigla occupies the
+            neutral layer across them, with mission-level audit and rollback.
+          </p>
+        </div>
+        <div class="table-wrap" tabindex="0" role="region" aria-label="Feature comparison table">
+          <table>
+            <caption>Architecture-level comparison</caption>
+            <thead>
+              <tr><th scope="col">Capability</th><th scope="col">Vigla</th><th scope="col">Vendor-native command centers</th></tr>
+            </thead>
+            <tbody>
+              <tr><th scope="row">Worker roster</th><td>Cross-vendor</td><td>One vendor</td></tr>
+              <tr><th scope="row">Execution isolation</th><td>Worktree per worker</td><td>Product-dependent</td></tr>
+              <tr><th scope="row">Pre-merge control</th><td>Independent bound audit</td><td>Product-dependent</td></tr>
+              <tr><th scope="row">Rollback unit</th><td>Whole mission</td><td>Thread or checkpoint</td></tr>
+              <tr><th scope="row">Control plane</th><td>Local, inspectable Rust</td><td>Vendor-owned</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="table-note">
+          This is positioning, not a scorecard. Named products, source links, and the current
+          verification date live in the
+          <a href="https://github.com/Kilbex/Vigla#how-it-compares">README comparison</a>.
+        </p>
+      </section>
+
+      <section class="section build-section" id="build" aria-labelledby="build-title">
+        <div class="build-copy">
+          <p class="section-index">04 · LOCAL BUILD</p>
+          <h2 id="build-title">The artifact comes from your machine.</h2>
+          <p>
+            Vigla does not publish maintainer-built binaries. The source-locked recipe installs
+            frontend dependencies, builds the app, ad-hoc signs it without a personal identity,
+            verifies the disk image, and prints its SHA-256 checksum.
+          </p>
+          <p class="requirements">Requires macOS 12+, Rust 1.95, Node 22, pnpm 10, and Xcode Command Line Tools.</p>
+        </div>
+        <div class="terminal" aria-label="Local build commands">
+          <div class="terminal-bar">
+            <span>LOCAL / SOURCE</span>
+            <button type="button" data-copy="#build-command" aria-describedby="copy-status">Copy</button>
+          </div>
+          <pre id="build-command"><code>git clone https://github.com/Kilbex/Vigla.git
+cd Vigla
+./scripts/build.sh</code></pre>
+          <p id="copy-status" class="sr-status" aria-live="polite"></p>
+        </div>
+      </section>
+
+      <section class="section open-section" aria-labelledby="open-title">
+        <div>
+          <p class="section-index">05 · OPEN WORK</p>
+          <h2 id="open-title">Built in public, with hard edges.</h2>
+        </div>
+        <p>
+          Portable Rust already runs in Linux CI. Linux packaging, Windows support, the fleet
+          benchmark, and shareable mission templates are public roadmap tracks with explicit
+          acceptance criteria—good places to contribute without guessing at hidden intent.
+        </p>
+        <div class="open-links">
+          <a href="https://github.com/Kilbex/Vigla/blob/main/CONTRIBUTING.md">Contributor guide</a>
+          <a href="https://github.com/Kilbex/Vigla/blob/main/ROADMAP.md">Public roadmap</a>
+          <a href="https://github.com/Kilbex/Vigla/blob/main/SUPPORT.md">Get support</a>
+        </div>
+      </section>
+
+      <section class="final-cta" aria-labelledby="final-title">
+        <img src="./icon.svg" width="64" height="64" alt="" />
+        <p class="section-index">THE WATCHPOST IS OPEN</p>
+        <h2 id="final-title">See the audit trail before trusting the pitch.</h2>
+        <div class="hero-actions">
+          <a class="button button-primary" href="./demo/">Open the recorded replay</a>
+          <a class="button button-secondary" href="https://github.com/Kilbex/Vigla">Inspect the source</a>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <div class="footer-brand">
+        <strong>Vigla</strong>
+        <span>Supervised AI coding agent operations.</span>
+      </div>
+      <nav aria-label="Project resources">
+        <a href="https://github.com/Kilbex/Vigla/blob/main/SECURITY.md">Security</a>
+        <a href="https://github.com/Kilbex/Vigla/blob/main/CODE_OF_CONDUCT.md">Conduct</a>
+        <a href="./llms.txt">llms.txt</a>
+        <a href="./llms-full.txt">llms-full.txt</a>
+      </nav>
+      <p>Apache-2.0 · No product telemetry</p>
+    </footer>
+  </body>
+</html>

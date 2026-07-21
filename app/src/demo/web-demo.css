@@ -1,0 +1,227 @@
+.web-demo-shell {
+  --demo-bar-height: 64px;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
+  min-width: 0;
+  background: var(--surface-base);
+}
+
+.web-demo-shell > .app-grid {
+  height: 100%;
+  min-height: 0;
+}
+
+.web-demo-bar {
+  min-height: var(--demo-bar-height);
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: minmax(190px, 0.75fr) auto minmax(240px, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--line-edge-base);
+  background: #0c121b;
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  z-index: 80;
+}
+
+.web-demo-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.web-demo-copy strong {
+  color: var(--accent);
+  font-family: var(--font-display);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.web-demo-copy span,
+.web-demo-outcome small {
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.web-demo-scenarios {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.web-demo-scenario,
+.web-demo-source {
+  min-height: 40px;
+  box-sizing: border-box;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--line-edge-base);
+  background: var(--surface-tile);
+  color: var(--text-secondary);
+  font: 600 11px/1 var(--font-ui);
+  cursor: pointer;
+  transition:
+    color var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease),
+    background var(--dur-fast) var(--ease);
+}
+
+.web-demo-scenario {
+  padding: 0 12px;
+}
+
+.web-demo-scenario:hover,
+.web-demo-scenario--active {
+  border-color: var(--accent);
+  color: var(--text-primary);
+  background: rgba(var(--accent-rgb), 0.1);
+}
+
+.web-demo-scenario:focus-visible,
+.web-demo-source:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.web-demo-outcome {
+  min-width: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.web-demo-outcome span {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-primary);
+}
+
+.web-demo-outcome small {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.web-demo-source {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 14px;
+  text-decoration: none;
+  color: var(--surface-base);
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.web-demo-source:hover {
+  color: var(--surface-base);
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.web-demo-shell .replay-banner {
+  top: calc(var(--demo-bar-height) + 8px);
+}
+
+@media (max-width: 980px) {
+  .web-demo-bar {
+    grid-template-columns: 1fr auto;
+  }
+
+  .web-demo-outcome {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .web-demo-copy span,
+  .web-demo-source {
+    display: none;
+  }
+
+  .web-demo-shell {
+    --demo-bar-height: 88px;
+  }
+}
+
+@media (max-width: 700px) {
+  .web-demo-bar {
+    gap: 8px;
+    padding: 8px;
+  }
+
+  .web-demo-copy {
+    display: none;
+  }
+
+  .web-demo-scenarios {
+    grid-column: 1 / -1;
+    justify-content: center;
+  }
+
+  .web-demo-outcome {
+    text-align: center;
+  }
+
+  .web-demo-outcome small {
+    display: none;
+  }
+
+  .web-demo-shell .app-grid {
+    grid-template-rows: minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "ops";
+  }
+
+  .web-demo-shell .command-panel,
+  .web-demo-shell .inbox-overview,
+  .web-demo-shell .mission-history,
+  .web-demo-shell .mission-inbox,
+  .web-demo-shell .comms-feed {
+    display: none;
+  }
+
+  .web-demo-shell .replay-controls {
+    right: 0;
+    bottom: 8px;
+    margin-inline: 8px;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .web-demo-shell .replay-banner {
+    display: none;
+  }
+
+  .web-demo-shell .replay-controls .replay-btn {
+    min-width: 0;
+    min-height: 40px;
+    padding-inline: 4px;
+  }
+
+  .web-demo-shell .replay-scrubber {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    width: 100%;
+    min-height: 20px;
+  }
+
+  .web-demo-shell .replay-control--end,
+  .web-demo-shell .replay-speed {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .web-demo-scenario,
+  .web-demo-source {
+    transition: none;
+  }
+}

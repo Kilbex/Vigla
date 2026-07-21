@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "note": "Per-bench measurements appended by each P2 hardening phase. ns_per_iter is criterion's 'mean' or 'point estimate'.",
+  "results": [
+    {
+      "phase": "phase-1-scanner-baseline",
+      "date": "2026-05-18",
+      "bench": "scan_4kb_with_one_secret",
+      "ns_per_iter": 661.73,
+      "note": "Pre-audit-fix baseline."
+    },
+    {
+      "phase": "phase-1-scanner-post-fix",
+      "date": "2026-05-18",
+      "bench": "scan_4kb_with_one_secret",
+      "ns_per_iter": 676.11,
+      "delta_vs_baseline_pct": 2.2,
+      "note": "F-001 doc-only fix + F-002 prefix_len param removal (5 internal call sites); delta within noise band (+2.2%)."
+    },
+    {
+      "phase": "phase-2-scoring-baseline",
+      "date": "2026-05-18",
+      "bench": "confidence_25_witnesses",
+      "ns_per_iter": 225.48,
+      "note": "Pre-audit-fix baseline."
+    },
+    {
+      "phase": "phase-2-scoring-post-fix",
+      "date": "2026-05-18",
+      "bench": "confidence_25_witnesses",
+      "ns_per_iter": 174.96,
+      "delta_vs_baseline_pct": -22.4,
+      "note": "F-003 minute-bucketed cache key + F-004 skip-malformed-observed-at + F-005 NaN filter + F-006 doc-only + F-007 skip-future-ts + F-008 sigmoid clamp ±36"
+    },
+    {
+      "phase": "phase-3-witnesses-baseline",
+      "date": "2026-05-18",
+      "bench": "witness_record_one",
+      "ns_per_iter": 43246,
+      "note": "Pre-audit-fix baseline. Note: F-009 documented but not fixed (no code change), so post-fix bench in Task 26 should match baseline within noise."
+    },
+    {
+      "phase": "phase-3-witnesses-post-fix",
+      "date": "2026-05-18",
+      "bench": "witness_record_one",
+      "ns_per_iter": 43044,
+      "delta_vs_baseline_pct": -0.47,
+      "note": "No fixes applied — F-009 filed as [documented] (UUIDv7 PK collision is 2^-61, negligible). Expect noise-level delta."
+    },
+    {
+      "phase": "phase-4-ratify-baseline",
+      "date": "2026-05-18",
+      "bench": "ratify_batch_of_10",
+      "ns_per_iter": 50335000,
+      "note": "Pre-audit-fix baseline; includes 10-proposal setup amortized via BatchSize::LargeInput."
+    },
+    {
+      "phase": "phase-4-ratify-post-fix",
+      "date": "2026-05-18",
+      "bench": "ratify_batch_of_10",
+      "ns_per_iter": 50919000,
+      "delta_vs_baseline_pct": 1.16,
+      "note": "F-010 optimistic lock + F-011 cosmetic + F-012 atomic witness in tx + F-013 logging. F-012 moves witness inserts INSIDE the tx (was post-commit) so a slight overhead is expected."
+    },
+    {
+      "phase": "phase-6-final",
+      "date": "2026-05-18",
+      "bench": "scan_4kb_with_one_secret",
+      "ns_per_iter": 639.47,
+      "delta_vs_phase1_post_fix_pct": -5.4,
+      "note": "Post-all-phases baseline. Compare against phase-1-scanner-post-fix."
+    },
+    {
+      "phase": "phase-6-final",
+      "date": "2026-05-18",
+      "bench": "confidence_25_witnesses",
+      "ns_per_iter": 172.26,
+      "delta_vs_phase2_post_fix_pct": -1.5,
+      "note": "Compare against phase-2-scoring-post-fix."
+    },
+    {
+      "phase": "phase-6-final",
+      "date": "2026-05-18",
+      "bench": "witness_record_one",
+      "ns_per_iter": 44426,
+      "delta_vs_phase3_post_fix_pct": 3.2,
+      "note": "Compare against phase-3-witnesses-post-fix."
+    },
+    {
+      "phase": "phase-6-final",
+      "date": "2026-05-18",
+      "bench": "ratify_batch_of_10",
+      "ns_per_iter": 49088000,
+      "delta_vs_phase4_post_fix_pct": -3.6,
+      "note": "Compare against phase-4-ratify-post-fix."
+    },
+    {
+      "phase": "phase-6-final",
+      "date": "2026-05-18",
+      "bench": "compose_manual_30_notes",
+      "ns_per_iter": 6054300,
+      "note": "First measurement of composer bench (no per-phase delta since not gauntleted)."
+    }
+  ]
+}

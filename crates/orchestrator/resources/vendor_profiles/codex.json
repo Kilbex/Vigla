@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "id": "codex",
+  "display_name": "Codex CLI",
+  "cli_binary": "codex",
+  "adapter_crate": "adapters/codex",
+  "commands": {
+    "supervisor": {
+      "supported": false,
+      "args": []
+    },
+    "mission_worker": {
+      "supported": true,
+      "args": [
+        "exec",
+        "--json",
+        "--skip-git-repo-check",
+        "--dangerously-bypass-approvals-and-sandbox",
+        "-C",
+        "${cwd}",
+        "${model_args}",
+        "${worker_playbook_then_prompt}"
+      ]
+    },
+    "standalone_worker": {
+      "supported": true,
+      "args": [
+        "exec",
+        "--json",
+        "--skip-git-repo-check",
+        "--dangerously-bypass-approvals-and-sandbox",
+        "-C",
+        "${cwd}",
+        "${model_args}",
+        "${worker_playbook_then_prompt}"
+      ]
+    }
+  },
+  "declared_side_effects": [
+    {
+      "kind": "paid_api_call",
+      "mode": "expected",
+      "description": "Codex CLI calls OpenAI's paid inference service for normal operation."
+    },
+    {
+      "kind": "network_egress",
+      "mode": "expected",
+      "description": "Codex CLI communicates with OpenAI services and may use networked commands when the task explicitly requires it."
+    },
+    {
+      "kind": "package_install",
+      "mode": "possible",
+      "description": "Workers may install packages only when the assigned task explicitly requires it."
+    },
+    {
+      "kind": "external_mutation",
+      "mode": "possible",
+      "description": "Workers may mutate external systems only through commands the task explicitly asks for; Vigla records this as visible, not reversible, authority."
+    }
+  ]
+}

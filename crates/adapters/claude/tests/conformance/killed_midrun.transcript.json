@@ -1,0 +1,7 @@
+{
+  "lines": [
+    { "stream": "stdout", "text": "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"sess-kill\"}" },
+    { "stream": "stdout", "text": "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"Working...\"}]}}" }
+  ],
+  "finalize": "Killed"
+}

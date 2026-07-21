@@ -1,0 +1,9 @@
+# The repository has one maintainer today. Split ownership when a second
+# regular maintainer can review an area independently.
+* @Kilbex
+
+# Security and automation changes always require maintainer review.
+/.github/ @Kilbex
+/.cargo/ @Kilbex
+/SECURITY.md @Kilbex
+/scripts/build.sh @Kilbex

@@ -1,0 +1,52 @@
+[package]
+name = "vigla-host"
+version = "0.1.0"
+description = "Vigla Tauri host"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+name = "vigla_host_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[features]
+# Phase 2 (V1.2 memory retrieval): pass-through that compiles
+# `vigla-orchestrator` with its `embeddings` feature on, which in
+# turn pulls `fastembed` (and transitively `ort` + the bundled ONNX
+# runtime). Off by default so the standard DMG path stays small;
+# enable for the V1.2 smoke build with:
+#   pnpm tauri build --features embeddings
+embeddings = ["orchestrator/embeddings"]
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+specta = { workspace = true }
+specta-typescript = { workspace = true }
+tauri-specta = { workspace = true }
+orchestrator = { package = "vigla-orchestrator", path = "../../crates/orchestrator" }
+event-schema = { workspace = true }
+# tokio is already in the workspace and pulled transitively via
+# tauri/orchestrator; the direct dep is needed so the app_settings
+# probe can use tokio::process + tokio::time::timeout. process is
+# the only non-default feature we add here.
+tokio = { workspace = true, features = ["process", "time", "macros"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-appender = { workspace = true }
+tauri-plugin-dialog = "2.7.1"
+tauri-plugin-notification = "2"
+
+[dev-dependencies]
+# Tier-2C memory command unit tests open an in-memory SqlitePool and
+# apply the orchestrator's migrations. The host doesn't need sqlx at
+# runtime — the kernel handles all SQL internally — so this is
+# deliberately a dev-only dependency.
+sqlx = { workspace = true }
+tempfile = { workspace = true }

@@ -1,0 +1,55 @@
+# Rust
+/target
+**/target
+
+# Node
+node_modules
+.pnpm-store
+
+# Vite
+app/dist
+app/dist-ssr
+app/dist-webdemo
+site/dist
+
+# TypeScript composite-build outputs (generated from vite.config.ts)
+app/tsconfig.tsbuildinfo
+app/tsconfig.node.tsbuildinfo
+app/vite.config.js
+app/vite.config.d.ts
+app/.tsbuild-node
+
+# Playwright
+/test-results
+app/test-results
+app/playwright-report
+tests/e2e/test-results
+tests/e2e/playwright-report
+
+# Tauri
+app/src-tauri/gen
+app/src-tauri/target
+
+# IDE / OS
+.DS_Store
+.idea
+.vscode/*
+!.vscode/extensions.json
+*.swp
+*.log
+
+# Local tooling / editor scratch
+.claude/
+.antigravitycli/
+.superpowers/
+
+# Private working notes — local-only, never published.
+# NOTE: this is ignored, not build output — do NOT `git clean -x` it away.
+.private/
+
+# Vigla runtime data (when implemented)
+*.sqlite
+*.sqlite-journal
+
+# Local ML model cache (fastembed / ONNX, downloaded on first embeddings run)
+**/.fastembed_cache/

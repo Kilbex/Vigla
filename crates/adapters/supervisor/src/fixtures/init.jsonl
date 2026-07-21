@@ -1,0 +1,2 @@
+{"type":"system","subtype":"init","session_id":"sess-abc-123","tools":[],"mcp_servers":[],"model":"claude-sonnet-4-5","cwd":"/tmp/sandbox"}
+{"type":"result","subtype":"success","session_id":"sess-abc-123","duration_ms":120,"result":"Ready."}

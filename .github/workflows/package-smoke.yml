@@ -1,0 +1,54 @@
+name: Package smoke
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "scripts/build.sh"
+      - "app/**"
+      - "crates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/package-smoke.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: package-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  local-dmg:
+    name: Verify local DMG recipe
+    # macOS 14 exercises the oldest GitHub-hosted macOS image available to
+    # public repositories and catches accidental use of macOS 26-only tools.
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+
+      - name: Build and verify local DMG
+        run: ./scripts/build.sh
+
+      # Deliberately no artifact upload or GitHub Release step. The supported
+      # distribution path is for each user to build the DMG on their Mac.

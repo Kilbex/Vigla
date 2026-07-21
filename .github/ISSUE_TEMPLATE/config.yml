@@ -1,0 +1,14 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Support and routing
+    url: https://github.com/Kilbex/Vigla/blob/main/SUPPORT.md
+    about: Choose the correct place for bugs, questions, features, and security reports.
+  - name: Questions and setup help
+    url: https://github.com/Kilbex/Vigla/discussions/categories/q-a
+    about: Ask reusable questions in GitHub Discussions.
+  - name: Contribution guide
+    url: https://github.com/Kilbex/Vigla/blob/main/CONTRIBUTING.md
+    about: Read setup, testing, and PR guidance before starting work.
+  - name: Newcomer task queue
+    url: https://github.com/Kilbex/Vigla/blob/main/docs/GOOD_FIRST_ISSUES.md
+    about: Find small, scoped tasks for first-time contributors.

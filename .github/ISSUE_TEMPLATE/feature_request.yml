@@ -1,0 +1,40 @@
+name: Feature request
+description: Suggest a focused improvement.
+title: "feat: "
+labels: ["enhancement", "needs triage"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What workflow is hard or impossible today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: Describe the smallest useful version.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Adapter
+        - Orchestrator
+        - Frontend
+        - Tauri host
+        - Documentation
+        - Build/CI
+        - Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: tradeoffs
+    attributes:
+      label: Tradeoffs or alternatives
+      description: Optional. Include constraints, risks, or designs you considered.
+    validations:
+      required: false

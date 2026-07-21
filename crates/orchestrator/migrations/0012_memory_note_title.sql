@@ -1,0 +1,21 @@
+-- 0012_memory_note_title.sql
+--
+-- Phase 0 groundwork for hybrid retrieval (V1.1+).
+--
+-- Adds a curator-facing `title` column to `memory_notes`. Titles are
+-- extracted from each note body's first Markdown H1 heading at
+-- `MemoryStore::prepare_note` time and backfilled for existing rows
+-- on the first `MemoryKernel::open` after this migration runs.
+--
+-- The column is nullable: not every note has an H1 (older notes were
+-- short prose), and the backfill is best-effort (a missing body file
+-- leaves the column null rather than failing the whole open). V1.1's
+-- BM25 scorer treats null titles as "no title signal" rather than as
+-- a parse error.
+--
+-- The index supports future title-prefix lookups in V1.1 (e.g. "show
+-- me notes whose title contains X" for the Ops Room debugger). It is
+-- a B-tree index, so it accelerates equality and prefix scans only;
+-- BM25 scoring itself does not use it.
+ALTER TABLE memory_notes ADD COLUMN title TEXT;
+CREATE INDEX idx_memory_notes_title ON memory_notes(title);

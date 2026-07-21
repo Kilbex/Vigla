@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "id": "claude",
+  "display_name": "Claude Code",
+  "cli_binary": "claude",
+  "adapter_crate": "adapters/claude",
+  "commands": {
+    "supervisor": {
+      "supported": true,
+      "args": [
+        "-p",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--append-system-prompt",
+        "${supervisor_playbook}",
+        "--disable-slash-commands",
+        "--tools",
+        "Read,Glob,LS",
+        "--disallowed-tools",
+        "${supervisor_disallowed_tools}",
+        "--max-turns",
+        "${supervisor_max_turns}",
+        "--dangerously-skip-permissions",
+        "${resume_args}",
+        "${model_args}",
+        "${prompt}"
+      ]
+    },
+    "mission_worker": {
+      "supported": true,
+      "args": [
+        "-p",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--append-system-prompt",
+        "${worker_playbook}",
+        "--permission-mode",
+        "bypassPermissions",
+        "--max-turns",
+        "12",
+        "--dangerously-skip-permissions",
+        "${model_args}",
+        "${prompt}"
+      ]
+    },
+    "standalone_worker": {
+      "supported": true,
+      "args": [
+        "-p",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--append-system-prompt",
+        "${worker_playbook}",
+        "--permission-mode",
+        "bypassPermissions",
+        "--max-turns",
+        "${max_turns}",
+        "--dangerously-skip-permissions",
+        "${resume_args}",
+        "${model_args}",
+        "${prompt}"
+      ]
+    }
+  },
+  "declared_side_effects": [
+    {
+      "kind": "paid_api_call",
+      "mode": "expected",
+      "description": "Claude Code calls Anthropic's paid inference service for normal operation."
+    },
+    {
+      "kind": "network_egress",
+      "mode": "expected",
+      "description": "Claude Code communicates with Anthropic services and may use networked tooling when the task explicitly requires it."
+    },
+    {
+      "kind": "package_install",
+      "mode": "possible",
+      "description": "Workers may install packages only when the assigned task explicitly requires it."
+    },
+    {
+      "kind": "external_mutation",
+      "mode": "possible",
+      "description": "Workers may mutate external systems only through commands the task explicitly asks for; Vigla records this as visible, not reversible, authority."
+    }
+  ]
+}
