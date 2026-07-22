@@ -70,13 +70,26 @@ export const CLI_MODEL_OPTIONS: Record<
   claude: [
     {
       value: null,
-      label: "Default",
-      detail: "Use Claude Code's current account and provider default",
+      label: "Default (recommended)",
+      detail:
+        "Opus 4.8 with 1M context · Best for everyday, complex tasks",
+    },
+    {
+      value: "opus",
+      label: "Opus",
+      detail:
+        "Opus 4.8 with 1M context · Best for everyday, complex tasks",
+    },
+    {
+      value: "fable",
+      label: "Fable",
+      detail:
+        "Fable 5 · Most capable for your hardest and longest-running tasks",
     },
     {
       value: "sonnet",
       label: "Sonnet",
-      detail: "Sonnet 4.6 · Best for everyday tasks",
+      detail: "Sonnet 5 · Efficient for routine tasks",
     },
     {
       value: "haiku",
@@ -89,6 +102,21 @@ export const CLI_MODEL_OPTIONS: Record<
       value: null,
       label: "Default",
       detail: "Use Codex CLI's current account and configuration default",
+    },
+    {
+      value: "gpt-5.6-sol",
+      label: "GPT-5.6 Sol",
+      detail: "Flagship capability for complex and long-running work",
+    },
+    {
+      value: "gpt-5.6-terra",
+      label: "GPT-5.6 Terra",
+      detail: "Balanced capability, speed, and cost for everyday work",
+    },
+    {
+      value: "gpt-5.6-luna",
+      label: "GPT-5.6 Luna",
+      detail: "Fastest, most cost-efficient GPT-5.6 option",
     },
     {
       value: "gpt-5.5",

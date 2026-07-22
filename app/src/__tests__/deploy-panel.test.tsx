@@ -194,6 +194,9 @@ describe("DeployPanel (unified team-launch surface)", () => {
     ]);
     expect(Array.from(employee2Model.options).map((o) => o.value)).toEqual([
       "",
+      "gpt-5.6-sol",
+      "gpt-5.6-terra",
+      "gpt-5.6-luna",
       "gpt-5.5",
       "gpt-5.4",
       "gpt-5.4-mini",
@@ -396,13 +399,13 @@ describe("DeployPanel (unified team-launch surface)", () => {
       target: { value: "codex" },
     });
     fireEvent.change(screen.getByLabelText(/employee 2 applied model/i), {
-      target: { value: "gpt-5.4-mini" },
+      target: { value: "gpt-5.6-sol" },
     });
     fireEvent.change(screen.getByLabelText(/employee 3 CLI$/i), {
       target: { value: "claude" },
     });
     fireEvent.change(screen.getByLabelText(/employee 3 applied model/i), {
-      target: { value: "sonnet" },
+      target: { value: "fable" },
     });
 
     fireEvent.click(screen.getByRole("button", { name: /start/i }));
@@ -417,7 +420,7 @@ describe("DeployPanel (unified team-launch surface)", () => {
         target_ref: "",
         tests: null,
         supervisor_model: "claude",
-        worker_model: "gemini:auto,codex:gpt-5.4-mini,claude:sonnet",
+        worker_model: "gemini:auto,codex:gpt-5.6-sol,claude:fable",
         worker_count: 3,
         confirm_plan: null,
       },
