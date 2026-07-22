@@ -26,6 +26,9 @@ edition = "2021"
 rust-version = "1.95.0"
 authors = ["Kilbex"]
 license = "Apache-2.0"
+repository = "https://github.com/Kilbex/Vigla"
+homepage = "https://kilbex.github.io/Vigla/"
+readme = "README.md"
 publish = false
 
 [workspace.dependencies]

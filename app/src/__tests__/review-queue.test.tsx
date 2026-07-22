@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useOpsStore } from "../store";
 import ReviewQueue from "../comms/ReviewQueue";
 
@@ -22,6 +22,16 @@ function seedDone(workerId: string, vendor: "claude" | "codex" | "gemini" | "moc
       [workerId]: { ...prev.workers[workerId], state: "done" },
     },
   }));
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
 }
 
 describe("Batch 3 — Review Queue actionable cards", () => {
@@ -165,6 +175,131 @@ describe("Batch 3 — Review Queue actionable cards", () => {
       expect(screen.getByRole("alert")).toHaveTextContent(/continue failed/i),
     );
     expect(screen.getByLabelText(/continue follow-up prompt/i)).toBeInTheDocument();
+  });
+
+  it("keeps a pending continue completion scoped to its worker", async () => {
+    seedDone("w-A", "claude");
+    seedDone("w-B", "claude");
+    const requestA = deferred<{ status: "ok"; data: null }>();
+    (commands.continueWorker as any).mockReturnValueOnce(requestA.promise);
+    const { container } = render(<ReviewQueue />);
+    const cardA = container.querySelector('[data-worker-id="w-A"]') as HTMLElement;
+    const cardB = container.querySelector('[data-worker-id="w-B"]') as HTMLElement;
+
+    fireEvent.click(within(cardA).getByRole("button", { name: /^continue$/i }));
+    fireEvent.change(
+      within(cardA).getByLabelText(/continue follow-up prompt/i),
+      { target: { value: "prompt for A" } },
+    );
+    fireEvent.click(within(cardA).getByText(/send →/i));
+
+    fireEvent.click(within(cardB).getByRole("button", { name: /^continue$/i }));
+    const inputB = within(cardB).getByLabelText(
+      /continue follow-up prompt/i,
+    ) as HTMLTextAreaElement;
+    expect(inputB).toBeEnabled();
+    fireEvent.change(inputB, { target: { value: "draft for B" } });
+
+    await act(async () => {
+      requestA.reject(new Error("late failure from A"));
+      await Promise.resolve();
+    });
+
+    expect(within(cardB).queryByRole("alert")).toBeNull();
+    expect(inputB).toHaveValue("draft for B");
+    expect(inputB).toBeEnabled();
+
+    fireEvent.click(within(cardA).getByRole("button", { name: /^continue$/i }));
+    expect(within(cardA).getByRole("alert")).toHaveTextContent(
+      "continue failed: late failure from A",
+    );
+    expect(
+      within(cardA).getByLabelText(/continue follow-up prompt/i),
+    ).toHaveValue("prompt for A");
+  });
+
+  it("does not collapse another worker's draft after a stale success", async () => {
+    seedDone("w-success-A", "claude");
+    seedDone("w-success-B", "claude");
+    const requestA = deferred<{ status: "ok"; data: null }>();
+    (commands.continueWorker as any).mockReturnValueOnce(requestA.promise);
+    const { container } = render(<ReviewQueue />);
+    const cardA = container.querySelector(
+      '[data-worker-id="w-success-A"]',
+    ) as HTMLElement;
+    const cardB = container.querySelector(
+      '[data-worker-id="w-success-B"]',
+    ) as HTMLElement;
+
+    fireEvent.click(within(cardA).getByRole("button", { name: /^continue$/i }));
+    fireEvent.change(
+      within(cardA).getByLabelText(/continue follow-up prompt/i),
+      { target: { value: "send A" } },
+    );
+    fireEvent.click(within(cardA).getByText(/send →/i));
+
+    fireEvent.click(within(cardB).getByRole("button", { name: /^continue$/i }));
+    const inputB = within(cardB).getByLabelText(
+      /continue follow-up prompt/i,
+    );
+    fireEvent.change(inputB, { target: { value: "keep B open" } });
+
+    await act(async () => {
+      requestA.resolve({ status: "ok", data: null });
+      await requestA.promise;
+    });
+
+    expect(
+      within(cardB).getByLabelText(/continue follow-up prompt/i),
+    ).toHaveValue("keep B open");
+  });
+
+  it("re-enables continue controls after a rejected IPC promise (does not brick)", async () => {
+    // Regression: the binding re-throws on an Error-instance rejection
+    // (Rust panic / IPC failure). submitContinue must catch it so
+    // continueBusy resets — otherwise the textarea + send + cancel freeze
+    // until app reload.
+    seedDone("w-rej", "claude");
+    (commands.continueWorker as any).mockRejectedValue(
+      new Error("ipc transport failed"),
+    );
+
+    render(<ReviewQueue />);
+    fireEvent.click(screen.getByRole("button", { name: /^continue$/i }));
+    const input = screen.getByLabelText(
+      /continue follow-up prompt/i,
+    ) as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "x" } });
+    fireEvent.click(screen.getByText(/send →/));
+
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent(/continue failed/i),
+    );
+    // The controls must be usable again, not stuck disabled.
+    expect(
+      screen.getByLabelText(/continue follow-up prompt/i),
+    ).not.toBeDisabled();
+  });
+
+  it("guards retry while pending and recovers from a rejected IPC promise", async () => {
+    seedDone("w-retry-reject", "claude");
+    (commands.retryWorker as any).mockRejectedValueOnce(
+      new Error("retry IPC unavailable"),
+    );
+
+    render(<ReviewQueue />);
+    const retryButton = screen.getByRole("button", { name: /^retry$/i });
+    fireEvent.click(retryButton);
+    expect(retryButton).toBeDisabled();
+    fireEvent.click(retryButton);
+    expect(commands.retryWorker).toHaveBeenCalledTimes(1);
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "retry failed: retry IPC unavailable",
+      );
+    });
+    expect(retryButton).toBeEnabled();
   });
 
   it("Esc inside textarea collapses the inline area", () => {

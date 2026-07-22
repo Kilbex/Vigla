@@ -21,11 +21,12 @@ export function createReviewSlice({
         // P3 — keep needsInputCount aligned with the queue when the
         // status flips between {undefined | "needs_review"} and
         // {accepted | rejected | parked}. Only applies if the worker
-        // is currently in a terminal state — non-terminal workers
-        // never count toward needsInput in the first place.
+        // is a standalone worker in a terminal state. Mission workers are
+        // reviewed and integrated by their supervisor, not this queue.
         const worker = target.workers[workerId];
         const isTerminal =
-          worker?.state === "done" || worker?.state === "failed";
+          !worker?.missionScoped &&
+          (worker?.state === "done" || worker?.state === "failed");
         const priorStatus = target.reviewStatus[workerId];
         const wasOnQueue =
           isTerminal &&
@@ -90,14 +91,14 @@ export function createReviewSlice({
   };
 }
 
-/// Shared implementation used by `selectWorkersNeedingReview` and
-/// `selectGlobalCounters.needsInput` so the queue and the counter
-/// cannot drift.
+/// Shared implementation for the generic standalone-worker Review Queue.
+/// Mission workers use supervisor review and never enter this queue.
 export function computeNeedsReview(s: OpsState): string[] {
   const needsReview: string[] = [];
   for (const wid of s.workerOrder) {
     const worker = s.workers[wid];
     if (!worker) continue;
+    if (worker.missionScoped) continue;
     if (worker.state !== "done" && worker.state !== "failed") continue;
     const status = s.reviewStatus[wid];
     if (status === undefined || status === "needs_review") {

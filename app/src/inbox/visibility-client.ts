@@ -1,17 +1,18 @@
 // S3 — thin client around the Rust `mission_event_visibility`
-// Tauri command. Cached by event type so the same shape only
-// crosses the IPC boundary once per app session.
+// Tauri command. Cached by a stable, payload-aware key so the same
+// visibility shape only crosses the IPC boundary once per app session.
 //
-// Falls back to a small in-process table on IPC failure so the
-// UI remains usable when the orchestrator is degraded. The
-// fallback is intentionally conservative — unknown events return
-// `Internal` (no UI surfacing) rather than wrongly surfacing
-// arbitrary events.
+// Falls back to a small in-process table on IPC failure so the UI remains
+// usable when the orchestrator is degraded. Fallback verdicts are not cached:
+// the next event must retry the authoritative command after a transient
+// transport failure. The fallback is intentionally conservative — unknown
+// events return `Internal` rather than surfacing arbitrary events.
 
 import type { MissionEvent, EventVisibility, MissionEventKindDto } from "../bindings";
 import { commands } from "../bindings";
 
 const cache = new Map<string, EventVisibility>();
+const inFlight = new Map<string, Promise<EventVisibility>>();
 
 /**
  * Look up the visibility verdict for a single mission event. The
@@ -24,34 +25,48 @@ const cache = new Map<string, EventVisibility>();
  * with action_required; Extend → internal; etc.), so the cache
  * key incorporates `bound` (or `none`) to keep the cache correct.
  */
-export async function fetchVisibility(
+export function fetchVisibility(
   event: MissionEvent,
 ): Promise<EventVisibility> {
   const key = cacheKey(event);
   const hit = cache.get(key);
-  if (hit) return hit;
+  if (hit) return Promise.resolve(hit);
 
+  const pending = inFlight.get(key);
+  if (pending) return pending;
+
+  // Do not cache degraded policy: a transient outage must not override
+  // authoritative routing for the remainder of the app session.
+  const degradedVerdict = () => fallbackVerdict(event);
+  let request: Promise<EventVisibility>;
   try {
     const kind = unwrapToKind(event) as MissionEventKindDto;
-    const verdict = await commands.missionEventVisibility(kind);
-    cache.set(key, verdict);
-    return verdict;
+    request = commands.missionEventVisibility(kind).then(
+      (verdict) => {
+        cache.set(key, verdict);
+        return verdict;
+      },
+      degradedVerdict,
+    );
   } catch {
-    // IPC failure — fall back to a conservative table that
-    // matches the Rust mapping's intent. Internal events stay
-    // silent; the user can recover by reloading the window.
-    const fallback = fallbackVerdict(event.type);
-    cache.set(key, fallback);
-    return fallback;
+    request = Promise.resolve(degradedVerdict());
   }
+
+  inFlight.set(key, request);
+  const release = () => {
+    if (inFlight.get(key) === request) inFlight.delete(key);
+  };
+  void request.then(release, release);
+  return request;
 }
 
 /**
  * Build a stable cache key for an event. Pure event-type for most
  * variants; for `arbiter.decided` the verdict varies along two
  * axes — the `bound` (only present for Escalate) and the decision
- * kind (Accept/Extend/Scrub/Escalate). Both feed the key so each
- * distinct Rust verdict is cached independently.
+ * kind (Accept/Extend/Scrub/Escalate). Extend also varies for the
+ * terminal `mark_unachievable` rework kind. These fields feed the key so
+ * each distinct Rust verdict is cached independently.
  *
  * For `supervisor.recovery_decided` the verdict is `Internal` today
  * but the action kind (retry/pause/escalate/request_supervisor) is
@@ -61,12 +76,16 @@ export async function fetchVisibility(
  * incorporates the parsed action kind so each variant caches
  * independently. Mirrors the `arbiter.decided` discriminator
  * pattern (see commit 9809437).
+ *
+ * `mission.completion_verdict_rendered` likewise routes by the
+ * serialized `recommendation.kind`: Accept is a completion while
+ * Extend/Scrub are escalations. Keep those outcomes in separate slots.
  */
 function cacheKey(event: MissionEvent): string {
   if (event.type === "arbiter.decided") {
     const payload = (event as { payload?: { bound?: unknown; decision_json?: string } }).payload;
     const bound = payload?.bound ?? "none";
-    const decisionKind = parseDecisionKind(payload?.decision_json);
+    const decisionKind = parseDecisionCacheDiscriminator(payload?.decision_json);
     return `arbiter.decided:${bound}:${decisionKind}`;
   }
   if (event.type === "supervisor.recovery_decided") {
@@ -74,21 +93,33 @@ function cacheKey(event: MissionEvent): string {
     const actionKind = parseRecoveryActionKind(payload?.action_json);
     return `supervisor.recovery_decided:${actionKind}`;
   }
+  if (event.type === "mission.completion_verdict_rendered") {
+    const payload = (event as { payload?: { payload_json?: string } }).payload;
+    const recommendationKind = parseCompletionRecommendationKind(payload?.payload_json);
+    return `mission.completion_verdict_rendered:${recommendationKind}`;
+  }
   return event.type;
 }
 
 /**
- * Extract the discriminator tag from a serialized ArbiterDecision.
- * Rust shape: `{"kind":"accept"|"extend"|"scrub"|"escalate", ...}`.
- * Returns `"unknown"` when the payload is missing or malformed so
- * cache-key collisions are surfaced as a single bucket per failure
- * mode rather than silently aliasing distinct verdicts.
+ * Extract the visibility-relevant discriminator from a serialized
+ * ArbiterDecision. Extend decisions also include the nested rework kind:
+ * `mark_unachievable` is user-visible while ordinary rework stays internal.
+ * Returns `"unknown"` when the payload is missing or malformed.
  */
-function parseDecisionKind(decisionJson: string | undefined): string {
+function parseDecisionCacheDiscriminator(
+  decisionJson: string | undefined,
+): string {
   if (!decisionJson) return "unknown";
   try {
-    const parsed = JSON.parse(decisionJson) as { kind?: unknown };
-    return typeof parsed.kind === "string" ? parsed.kind : "unknown";
+    const parsed = JSON.parse(decisionJson) as {
+      kind?: unknown;
+      rework_kind?: { kind?: unknown };
+    };
+    if (typeof parsed.kind !== "string") return "unknown";
+    if (parsed.kind !== "extend") return parsed.kind;
+    const reworkKind = parsed.rework_kind?.kind;
+    return `extend:${typeof reworkKind === "string" ? reworkKind : "unknown"}`;
   } catch {
     return "unknown";
   }
@@ -119,6 +150,21 @@ function parseRecoveryActionKind(actionJson: string | undefined): string {
   }
 }
 
+/** Extract `recommendation.kind` from a serialized CompletionVerdict. */
+function parseCompletionRecommendationKind(payloadJson: string | undefined): string {
+  if (!payloadJson) return "unknown";
+  try {
+    const parsed = JSON.parse(payloadJson) as {
+      recommendation?: { kind?: unknown };
+    };
+    return typeof parsed.recommendation?.kind === "string"
+      ? parsed.recommendation.kind
+      : "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
 /**
  * The Tauri command expects a `MissionEventKind` (the inner
  * variant), not the outer `MissionEvent` envelope. The bindings
@@ -139,10 +185,12 @@ function unwrapToKind(event: MissionEvent): unknown {
  * collapse to `Internal` so silent-by-default holds even in the
  * degraded mode.
  */
-function fallbackVerdict(eventType: string): EventVisibility {
-  switch (eventType) {
+function fallbackVerdict(event: MissionEvent): EventVisibility {
+  switch (event.type) {
     case "mission.completed":
     case "mission.merge_resolved":
+    case "mission.reverted":
+    case "mission.paused":
       return { kind: "inbox", inbox_kind: "completion", severity: "info" } as unknown as EventVisibility;
     case "mission.aborted":
     case "boundary.sub_supervisor_refused":
@@ -150,6 +198,7 @@ function fallbackVerdict(eventType: string): EventVisibility {
     case "boundary.side_effect_logged":
       return { kind: "inbox", inbox_kind: "side_effect", severity: "warning" } as unknown as EventVisibility;
     case "plan.proposed":
+    case "supervisor.decomposition_rejected":
       return { kind: "inbox", inbox_kind: "escalation", severity: "action_required" } as unknown as EventVisibility;
     case "plan.rejected":
       // QC-3: the user already drove the reject; no inbox card is
@@ -162,6 +211,19 @@ function fallbackVerdict(eventType: string): EventVisibility {
       // silent loss: a user-visible warning recovers cleanly when
       // the user reloads, whereas a missed Escalate is invisible.
       return { kind: "inbox", inbox_kind: "escalation", severity: "warning" } as unknown as EventVisibility;
+    case "mission.completion_verdict_rendered": {
+      const payload = (event as { payload?: { payload_json?: string } }).payload;
+      const recommendationKind = parseCompletionRecommendationKind(payload?.payload_json);
+      if (recommendationKind === "extend" || recommendationKind === "escalate") {
+        return { kind: "inbox", inbox_kind: "escalation", severity: "action_required" } as unknown as EventVisibility;
+      }
+      if (recommendationKind === "scrub") {
+        return { kind: "inbox", inbox_kind: "escalation", severity: "warning" } as unknown as EventVisibility;
+      }
+      // Match Rust's fail-visible default: Accept and malformed payloads
+      // remain a completion card instead of disappearing during IPC loss.
+      return { kind: "inbox", inbox_kind: "completion", severity: "info" } as unknown as EventVisibility;
+    }
     default:
       return { kind: "internal" } as unknown as EventVisibility;
   }
@@ -173,4 +235,5 @@ function fallbackVerdict(eventType: string): EventVisibility {
  */
 export function _resetVisibilityCache(): void {
   cache.clear();
+  inFlight.clear();
 }

@@ -607,6 +607,8 @@ mod mapping_tests {
                 worker_id: "w-1".into(),
                 task_index: 0,
                 task_title: "step".into(),
+                vendor: None,
+                model: None,
             }),
             EventVisibility::PowerUserOnly
         );
@@ -1032,6 +1034,8 @@ mod invariant_tests {
                 worker_id: "w".into(),
                 task_index: 0,
                 task_title: "t".into(),
+                vendor: None,
+                model: None,
             },
             7 => MissionEventKind::WorkerProgress {
                 worker_id: "w".into(),

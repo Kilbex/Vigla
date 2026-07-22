@@ -23,7 +23,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
-use tokio::process::Command;
 use tokio::sync::Mutex;
 
 #[derive(Debug, Error)]
@@ -110,22 +109,15 @@ pub fn resolve_git_repo_root(raw: &str) -> Result<PathBuf, HostServiceError> {
     let selected = validate_working_dir(raw)?;
     let selected = std::fs::canonicalize(&selected)
         .map_err(|error| HostServiceError::WorkingDirectoryUnreadable(error.to_string()))?;
-    let output = std::process::Command::new("git")
-        .args(["-C"])
-        .arg(&selected)
-        .args(["rev-parse", "--show-toplevel"])
-        .output()
-        .map_err(|error| HostServiceError::WorkingDirectoryNotGitRepository {
-            path: selected.clone(),
-            reason: error.to_string(),
-        })?;
-    if !output.status.success() {
-        return Err(HostServiceError::WorkingDirectoryNotGitRepository {
-            path: selected,
-            reason: String::from_utf8_lossy(&output.stderr).trim().to_string(),
-        });
-    }
-    let top_level = String::from_utf8(output.stdout).map_err(|error| {
+    let stdout = MissionWorkspace::run_git_process_bytes_sync_in(
+        &selected,
+        &["rev-parse", "--show-toplevel"],
+    )
+    .map_err(|error| HostServiceError::WorkingDirectoryNotGitRepository {
+        path: selected.clone(),
+        reason: error.to_string(),
+    })?;
+    let top_level = String::from_utf8(stdout).map_err(|error| {
         HostServiceError::WorkingDirectoryNotGitRepository {
             path: selected.clone(),
             reason: error.to_string(),
@@ -373,19 +365,18 @@ pub async fn get_worker_diff(
     worker_id: &str,
 ) -> Result<String, HostServiceError> {
     let worker_info = supervisor.get_worker_info(worker_id).await?;
-    let output = tokio::process::Command::new("git")
-        .arg("diff")
-        .arg("--unified=3")
-        .current_dir(&worker_info.cwd)
-        .output()
-        .await
-        .map_err(|e| HostServiceError::GitDiffIo(e.to_string()))?;
+    let stdout = match MissionWorkspace::run_git_process_bytes_in(
+        Path::new(&worker_info.cwd),
+        &["diff", "--no-ext-diff", "--unified=3"],
+    )
+    .await
+    {
+        Ok(stdout) => stdout,
+        Err(MissionGitError::Git { .. }) => return Ok(String::new()),
+        Err(error) => return Err(HostServiceError::GitDiffIo(error.to_string())),
+    };
 
-    if !output.status.success() {
-        return Ok(String::new());
-    }
-
-    String::from_utf8(output.stdout).map_err(|e| HostServiceError::GitDiffUtf8(e.to_string()))
+    String::from_utf8(stdout).map_err(|e| HostServiceError::GitDiffUtf8(e.to_string()))
 }
 
 /// Result of starting a mission. UI hosts forward `events` through
@@ -482,13 +473,15 @@ impl MissionController {
         let target_ref = spec.target_ref.clone();
         let repo_root_for_history = repo_root.to_string_lossy().into_owned();
 
-        {
-            let guard = self.runtime.lock().await;
-            if let Some(existing) = guard.as_ref() {
-                let state = existing.state();
-                if !is_terminal(&state) {
-                    return Err(HostServiceError::ActiveMission { state });
-                }
+        // Hold the slot from the active-state check through workspace startup.
+        // Startup creates durable branches and worktrees before it can return a
+        // runtime, so releasing the slot in between lets two callers create
+        // artifacts and forces the loser to abandon an unregistered mission.
+        let mut runtime_slot = self.runtime.lock().await;
+        if let Some(existing) = runtime_slot.as_ref() {
+            let state = existing.state();
+            if !is_terminal(&state) {
+                return Err(HostServiceError::ActiveMission { state });
             }
         }
 
@@ -504,15 +497,6 @@ impl MissionController {
             runtime.install_disposition_store(repository.clone()).await;
         }
 
-        let mut guard = self.runtime.lock().await;
-        if let Some(existing) = guard.as_ref() {
-            let state = existing.state();
-            if !is_terminal(&state) {
-                let _ = runtime.abort().await;
-                return Err(HostServiceError::ConcurrentMission { state });
-            }
-        }
-
         let events = runtime.subscribe();
         if let Some(repository) = history_repository {
             let audit_events = runtime.subscribe();
@@ -521,7 +505,8 @@ impl MissionController {
                     .await;
             });
         }
-        *guard = Some(runtime);
+        *runtime_slot = Some(runtime);
+        drop(runtime_slot);
         if let Some(repository) = compaction_repository {
             crate::mission_workspace::retention::spawn_repo_compaction_if_due(
                 repo_root,
@@ -923,26 +908,27 @@ async fn resolve_mission_target_ref(
 }
 
 async fn current_local_branch(repo_root: &Path) -> Result<String, HostServiceError> {
-    let output = Command::new("git")
-        .args(["symbolic-ref", "--quiet", "--short", "HEAD"])
-        .current_dir(repo_root)
-        .output()
-        .await
-        .map_err(|e| HostServiceError::TargetRefUnavailable {
-            reason: e.to_string(),
-        })?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        let reason = if stderr.is_empty() {
-            "the repository is in detached HEAD; check out a local branch first".into()
-        } else {
-            stderr
-        };
-        return Err(HostServiceError::TargetRefUnavailable { reason });
-    }
-
-    let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let branch = match MissionWorkspace::run_git_process_in(
+        repo_root,
+        &["symbolic-ref", "--quiet", "--short", "HEAD"],
+    )
+    .await
+    {
+        Ok(branch) => branch,
+        Err(MissionGitError::Git { stderr, .. }) => {
+            let reason = if stderr.is_empty() {
+                "the repository is in detached HEAD; check out a local branch first".into()
+            } else {
+                stderr
+            };
+            return Err(HostServiceError::TargetRefUnavailable { reason });
+        }
+        Err(error) => {
+            return Err(HostServiceError::TargetRefUnavailable {
+                reason: error.to_string(),
+            });
+        }
+    };
     if branch.is_empty() {
         return Err(HostServiceError::TargetRefUnavailable {
             reason: "git did not report a current branch".into(),
@@ -953,15 +939,18 @@ async fn current_local_branch(repo_root: &Path) -> Result<String, HostServiceErr
 
 async fn git_commit_exists(repo_root: &Path, refname: &str) -> Result<bool, HostServiceError> {
     let commitish = format!("{refname}^{{commit}}");
-    let output = Command::new("git")
-        .args(["rev-parse", "--verify", "--quiet", &commitish])
-        .current_dir(repo_root)
-        .output()
-        .await
-        .map_err(|e| HostServiceError::TargetRefUnavailable {
-            reason: e.to_string(),
-        })?;
-    Ok(output.status.success())
+    match MissionWorkspace::run_git_process_in(
+        repo_root,
+        &["rev-parse", "--verify", "--quiet", &commitish],
+    )
+    .await
+    {
+        Ok(_) => Ok(true),
+        Err(MissionGitError::Git { .. }) => Ok(false),
+        Err(error) => Err(HostServiceError::TargetRefUnavailable {
+            reason: error.to_string(),
+        }),
+    }
 }
 
 fn is_terminal(state: &MissionState) -> bool {
@@ -1120,6 +1109,56 @@ mod tests {
             .await
             .expect("abort first mission");
         drop(first);
+    }
+
+    #[tokio::test]
+    async fn concurrent_mission_start_reserves_before_creating_git_artifacts() {
+        let (_temp, root) = make_sandbox_repo();
+        let controller = Arc::new(MissionController::default());
+        let first_controller = Arc::clone(&controller);
+        let second_controller = Arc::clone(&controller);
+
+        let (first, second) = tokio::join!(
+            first_controller.start_mission(ok_spec("concurrent-first"), root.to_str().unwrap()),
+            second_controller.start_mission(ok_spec("concurrent-second"), root.to_str().unwrap()),
+        );
+
+        assert_eq!(
+            usize::from(first.is_ok()) + usize::from(second.is_ok()),
+            1,
+            "exactly one concurrent caller may reserve the mission slot"
+        );
+        let branches = SyncCommand::new("git")
+            .args([
+                "for-each-ref",
+                "--format=%(refname:short)",
+                "refs/heads/vigla/",
+            ])
+            .current_dir(&root)
+            .output()
+            .unwrap();
+        let branch_listing = String::from_utf8_lossy(&branches.stdout);
+        let supervisor_branches = branch_listing
+            .lines()
+            .filter(|branch| branch.ends_with("/supervisor"))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            supervisor_branches.len(),
+            1,
+            "a rejected concurrent start must not leave an orphan branch: {supervisor_branches:?}"
+        );
+        let worktree_root = root.join(".vigla/worktrees");
+        let mission_dirs = std::fs::read_dir(worktree_root)
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(
+            mission_dirs.len(),
+            1,
+            "a rejected concurrent start must not leave an orphan worktree"
+        );
+
+        controller.abort_mission().await.unwrap();
     }
 
     #[tokio::test]

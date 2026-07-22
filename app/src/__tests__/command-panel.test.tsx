@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useOpsStore } from "../store";
 import CommandPanel from "../command-panel/CommandPanel";
 import { commands } from "../bindings";
@@ -60,28 +60,33 @@ describe("Batch 3 — CommandPanel needs-input counter", () => {
     expect(screen.queryByText(/needs input/i)).toBeNull();
   });
 
-  it("renders ⚠ N needs input when there are needs-review workers", () => {
+  it("renders a named attention control when workers need review", () => {
     seedDone("w1");
     seedDone("w2");
     render(<CommandPanel />);
-    expect(screen.getByText(/⚠ 2 needs input/)).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /2 items need input/i }),
+    ).toBeInTheDocument();
+    expect(document.querySelector(".command-panel")?.textContent).not.toContain(
+      "⚠",
+    );
   });
 
   it("accepting one reduces the count to 1", async () => {
     seedDone("w1");
     seedDone("w2");
     render(<CommandPanel />);
-    expect(screen.getByText(/⚠ 2 needs input/)).toBeInTheDocument();
+    expect(screen.getByText(/2 items need input/i)).toBeInTheDocument();
     useOpsStore.getState().setReviewStatus("w1", "accepted");
     await waitFor(() => {
-      expect(screen.getByText(/⚠ 1 needs input/)).toBeInTheDocument();
+      expect(screen.getByText(/1 item needs input/i)).toBeInTheDocument();
     });
   });
 
   it("hides chip after all workers accepted", async () => {
     seedDone("w1");
     render(<CommandPanel />);
-    expect(screen.getByText(/⚠ 1 needs input/)).toBeInTheDocument();
+    expect(screen.getByText(/1 item needs input/i)).toBeInTheDocument();
     useOpsStore.getState().setReviewStatus("w1", "accepted");
     await waitFor(() => {
       expect(screen.queryByText(/needs input/i)).toBeNull();
@@ -92,7 +97,9 @@ describe("Batch 3 — CommandPanel needs-input counter", () => {
     seedDone("w-first");
     seedDone("w-second");
     render(<CommandPanel />);
-    fireEvent.click(screen.getByText(/needs input/i));
+    fireEvent.click(
+      screen.getByRole("button", { name: /2 items need input/i }),
+    );
     // workerOrder is insertion order, so first is w-first.
     expect(useOpsStore.getState().reviewFocusedWorkerId).toBe("w-first");
   });
@@ -103,9 +110,17 @@ describe("Batch 3 — CommandPanel needs-input counter", () => {
     expect(chips.length).toBeGreaterThanOrEqual(4);
     chips.forEach((chip) => expect(chip).not.toHaveClass("hud-corners"));
   });
+
+  it("groups telemetry into one calm instrument without separator glyphs", () => {
+    render(<CommandPanel />);
+    expect(
+      screen.getByRole("group", { name: /mission telemetry/i }),
+    ).toBeInTheDocument();
+    expect(document.querySelectorAll(".command-panel .sep")).toHaveLength(0);
+  });
 });
 
-it("renders a rotating reticle glyph before the brand wordmark", () => {
+it("renders the owned reticle glyph before the brand wordmark", () => {
   render(<CommandPanel />);
   const reticle = document.querySelector(".command-panel-reticle");
   expect(reticle).not.toBeNull();
@@ -129,7 +144,7 @@ describe("P2-14 — CommandPanel uptime/version tri-state", () => {
   function uptimeChip(): HTMLElement {
     const chips = document.querySelectorAll(".command-panel .meta");
     const chip = Array.from(chips).find((c) =>
-      c.textContent?.includes("uptime"),
+      c.textContent?.toLowerCase().includes("uptime"),
     ) as HTMLElement | undefined;
     if (!chip) throw new Error("uptime chip not found");
     return chip;
@@ -190,6 +205,27 @@ describe("P2-14 — CommandPanel uptime/version tri-state", () => {
     expect(faint!.textContent).toBe("n/a");
     expect(chip.getAttribute("title")).toMatch(/IPC down/);
     expect(chip.textContent).not.toContain("—");
+  });
+
+  it("polls backend health every ten seconds while uptime advances locally", async () => {
+    vi.useFakeTimers();
+    healthCheckMock.mockResolvedValue({
+      ok: true,
+      uptime_ms: 0,
+      version: "0.0.1-test",
+    });
+    const view = render(<CommandPanel />);
+
+    try {
+      expect(healthCheckMock).toHaveBeenCalledTimes(1);
+      await act(() => vi.advanceTimersByTimeAsync(9_999));
+      expect(healthCheckMock).toHaveBeenCalledTimes(1);
+      await act(() => vi.advanceTimersByTimeAsync(1));
+      expect(healthCheckMock).toHaveBeenCalledTimes(2);
+    } finally {
+      view.unmount();
+      vi.useRealTimers();
+    }
   });
 });
 

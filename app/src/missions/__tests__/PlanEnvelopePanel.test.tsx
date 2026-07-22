@@ -11,7 +11,7 @@ describe("PlanEnvelopePanel", () => {
       risk: { fit: "exceeds", note: "billing endpoint" },
       quality: { fit: "within", note: "" },
     };
-    render(<PlanEnvelopePanel envelopeFit={ef} />);
+    const { container } = render(<PlanEnvelopePanel envelopeFit={ef} />);
     expect(screen.getByText(/^scope$/i)).toBeInTheDocument();
     expect(screen.getByText(/^reversibility$/i)).toBeInTheDocument();
     expect(screen.getByText(/^risk$/i)).toBeInTheDocument();
@@ -21,6 +21,20 @@ describe("PlanEnvelopePanel", () => {
       .getByText(/billing endpoint/i)
       .closest(".plan-envelope__row");
     expect(exceedsRow).toHaveClass("plan-envelope__row--exceeds");
+    expect(container.querySelectorAll(".plan-envelope__fit-icon svg")).toHaveLength(4);
+    expect(container).not.toHaveTextContent("▸");
+    expect(container).not.toHaveTextContent("●");
+  });
+
+  it("sanitizes model-authored notes before rendering", () => {
+    const ef: EnvelopeFit = {
+      scope: { fit: "within", note: "<b>src/</b>\u202e only" },
+      reversibility: { fit: "within", note: "" },
+      risk: { fit: "within", note: "" },
+      quality: { fit: "within", note: "" },
+    };
+    render(<PlanEnvelopePanel envelopeFit={ef} />);
+    expect(screen.getByText("src/ only")).toBeInTheDocument();
   });
 
   it("renders empty notes as no note span (no 'note: undefined' artifact)", () => {

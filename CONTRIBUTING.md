@@ -97,10 +97,12 @@ before pushing — please do, it keeps review fast.
 | Toolchain pinned by `rust-toolchain.toml` + `clippy`, `rustfmt` | `rustup component add clippy rustfmt` |
 | `cargo fmt --all -- --check` | same |
 | Build the release `mock-harness` (Tauri bundle resource) | `cargo xtask build-mock-harness` |
-| `cargo check --workspace --all-targets` | same |
+| `cargo check --workspace --all-targets --all-features` | same |
 | `cargo clippy --workspace --all-targets -- -D warnings` | `cargo xtask clippy` |
 | `cargo clippy --workspace --release --all-targets -- -D warnings` | `cargo xtask clippy --release` |
 | `cargo test --workspace` | `cargo xtask test` |
+| Regenerate TypeScript bindings and require a clean diff | `VIGLA_REGEN_BINDINGS=1 cargo test -p vigla-host --lib regenerate_typescript_bindings && git diff --exit-code -- app/src/bindings.ts` |
+| Regenerate the lock-bound Rust dependency license report and require a clean diff | See “Dependency license updates” below |
 | `cargo xtask receipt` | same |
 | `cargo audit --deny warnings` | `cargo audit --deny warnings` |
 
@@ -112,8 +114,10 @@ cargo clippy --workspace --all-targets --exclude vigla-host -- -D warnings
 cargo test --workspace --exclude vigla-host
 ```
 
-**Supply-chain job** — `cargo deny check` enforces the license, crate-ban,
-advisory, and registry-source policy in [`deny.toml`](deny.toml).
+**Supply-chain job** — a checksum-pinned Gitleaks binary scans the complete
+reachable Git history before `cargo deny --all-features check` enforces the
+license, crate-ban, advisory, and registry-source policy in
+[`deny.toml`](deny.toml).
 
 **Frontend job** — in `app/`:
 
@@ -128,6 +132,44 @@ advisory, and registry-source policy in [`deny.toml`](deny.toml).
 
 The same job also runs `node --test scripts/*.test.mjs` and
 `node scripts/check-links.mjs` from the repository root.
+
+### Dependency license updates
+
+`THIRD_PARTY_NOTICES.txt` and the web/Tauri copies are generated files. After
+changing `Cargo.lock`, regenerate the sanitized Rust report with the same
+pinned `cargo-about` version as CI, then refresh the combined distribution:
+
+```sh
+cargo install --locked --features cli cargo-about --version 0.9.1
+cargo about generate --workspace --all-features --locked --fail \
+  --format json --output-file /tmp/vigla-rust-licenses.json
+node scripts/generate-license-notices.mjs \
+  --write-rust-report /tmp/vigla-rust-licenses.json
+pnpm -C app licenses:write
+```
+
+After a production JavaScript dependency change, `pnpm -C app licenses:write`
+is sufficient. If an `ort-sys` update selects a different ONNX Runtime release,
+update the pinned sources and checksums in
+[`scripts/retained-license-sources.mjs`](scripts/retained-license-sources.mjs),
+then fetch and verify the official tagged legal files before regenerating:
+
+```sh
+node scripts/retained-license-sources.mjs --write
+node scripts/retained-license-sources.mjs --check
+```
+
+The normal script tests and app build perform the checksum verification offline
+and reject stale inventories, missing license text, Cargo lock drift, native
+runtime version drift, or a generated report containing a local filesystem
+path. The Rust report also retains `NOTICE`, `COPYRIGHT`, and `PATENTS` files,
+explicit third-party attributions, and both top-level and nested license files
+shipped inside dependency source archives, including vendored native libraries.
+When an archive omits a workspace license, the report uses a checksum-pinned
+file from the crate's exact recorded upstream revision. Generation fails if a
+generic SPDX template package lacks that attribution; when upstream publishes
+no copyright line at all, the inventory preserves the exact package metadata
+and explicitly records the omission instead of inventing an owner.
 
 **Browser E2E job** — installs Chromium, Firefox, and WebKit on Linux, then
 runs the desktop UI contract, recorded replay, and GitHub Pages surface:
@@ -154,10 +196,14 @@ gate is:
 ```sh
 cargo fmt --all -- --check
 cargo xtask ci          # = cargo xtask test + cargo xtask clippy (debug, -D warnings)
+VIGLA_REGEN_BINDINGS=1 cargo test -p vigla-host --lib regenerate_typescript_bindings
+git diff --exit-code -- app/src/bindings.ts
 cargo xtask receipt     # fixed recovery case set + exact-SHA mission revert
 cargo xtask clippy --release
 cargo audit --deny warnings
-cargo deny check
+cargo deny --all-features check
+gitleaks git --redact --no-banner
+node scripts/scan-publishable-tree.mjs
 pnpm audit --audit-level low
 node --test scripts/*.test.mjs
 node scripts/check-links.mjs
@@ -233,7 +279,7 @@ dependencies raise the audit and supply-chain surface, so they get scrutiny:
 - **`cargo audit --deny warnings` must pass** — CI runs it and it hard-fails on any
   advisory (vulnerability *or* unmaintained) in the dependency tree. Install it
   with `cargo install --locked cargo-audit`.
-- **`cargo deny check` must pass** — [`deny.toml`](deny.toml) rejects
+- **`cargo deny --all-features check` must pass** — [`deny.toml`](deny.toml) rejects
   unapproved licenses, registry or git sources, wildcard registry versions, and
   new advisories. Development dependencies are included in the license check.
 - **`pnpm audit --audit-level low` must pass** — the locked frontend and

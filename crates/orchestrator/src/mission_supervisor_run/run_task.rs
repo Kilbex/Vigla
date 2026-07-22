@@ -286,6 +286,8 @@ pub(super) async fn run_task(
         &task,
         ctx.spec.worker_model.as_deref(),
     );
+    let initial_model =
+        resolve_worker_model_for_task(initial_backend, &task, ctx.spec.worker_model.as_deref());
     let initial_acl = effective_acl_for_pass(&ctx, &task, None);
 
     // S8: write the ACL sentinel into the worktree so audit replay
@@ -322,11 +324,13 @@ pub(super) async fn run_task(
         &ctx.event_bus,
         &ctx.mission_id,
         &ctx.seq,
-        MissionEventKind::WorkerSpawned {
-            worker_id: worker_id.clone(),
-            task_index: task.index,
-            task_title: task.title.clone(),
-        },
+        worker_spawned_event(
+            worker_id.clone(),
+            task.index,
+            task.title.clone(),
+            initial_backend,
+            initial_model,
+        ),
     );
 
     let observability = observability_for_worker(&ctx, &worker_id);
@@ -726,13 +730,17 @@ async fn run_extend_branch(
         state.rebrief_overlay = Some(b);
     }
     if let Some(v) = plan.vendor_swap {
-        use crate::mission_worker_dispatch::WorkerVendor as WV;
-        state.vendor_for_this_pass = match v {
-            event_schema::Vendor::Claude => WorkerBackend::RealCli(WV::Claude),
-            event_schema::Vendor::Codex => WorkerBackend::RealCli(WV::Codex),
-            event_schema::Vendor::Gemini => WorkerBackend::RealCli(WV::Gemini),
-            _ => state.vendor_for_this_pass,
-        };
+        match backend_after_reassign(v) {
+            Ok(backend) => state.vendor_for_this_pass = backend,
+            Err(unsupported) => {
+                state.escalated = true;
+                state.escalation_rationale = Some(format!(
+                    "supervisor requested unsupported reassign vendor {unsupported:?}; \
+                     no runtime worker profile exists"
+                ));
+                return Ok(Flow::Break);
+            }
+        }
     }
     if let Some(fresh_id) = plan.fresh_worker_id {
         // S6: no per-worker teardown method exists yet;
@@ -795,14 +803,16 @@ async fn run_extend_branch(
             &ctx.event_bus,
             &ctx.mission_id,
             &ctx.seq,
-            MissionEventKind::WorkerSpawned {
-                worker_id: state.worker_id_for_this_pass.clone(),
-                task_index: task.index,
-                task_title: state
+            reassigned_worker_spawned_event(
+                state.worker_id_for_this_pass.clone(),
+                state
                     .rebrief_overlay
                     .clone()
                     .unwrap_or_else(|| task.title.clone()),
-            },
+                &fresh_task,
+                fresh_backend,
+                ctx.spec.worker_model.as_deref(),
+            ),
         );
     }
     if plan.append_sub_tasks.is_some() {
@@ -1207,7 +1217,15 @@ async fn run_recovery_branch(
             Flow::Break
         }
         crate::recovery::types::RecoveryAction::RequestSupervisor { .. } => {
-            state.attempts_used_for_task += 1;
+            // Reached only for a `FailureClass::InadequateContext`, which
+            // requires the worker pass to have surfaced a context request. No
+            // shipping vendor adapter overrides `take_context_requests` today,
+            // so this arm is currently unreachable in production. If a future
+            // adapter emits context requests, revisit this path: it retries
+            // without its own cap (relying on the arbiter budget) and replaces
+            // any memory-supplied directive with the placeholder below.
+            // Saturating so the u8 counter can never overflow-panic here.
+            state.attempts_used_for_task = state.attempts_used_for_task.saturating_add(1);
             state.rework_directive =
                 Some("context-supply directive — see RecoveryDecided event".into());
             Flow::Continue
@@ -1747,6 +1765,66 @@ fn memory_vendor_for_backend(
     }
 }
 
+/// Convert a pass backend after task routing into the canonical identity
+/// carried by `worker.spawned`. Returning `None` for an unresolved routing
+/// mode keeps the wire contract honest if a future caller skips resolution.
+fn vendor_for_resolved_backend(backend: WorkerBackend) -> Option<event_schema::Vendor> {
+    match backend {
+        WorkerBackend::Mock => Some(event_schema::Vendor::Mock),
+        WorkerBackend::L1ClaudeQuotaExhausted => Some(event_schema::Vendor::Claude),
+        WorkerBackend::RealCli(vendor) => Some(vendor.event_schema_vendor()),
+        WorkerBackend::AutoReal | WorkerBackend::Roster(_) => None,
+    }
+}
+
+/// Apply a supervisor-requested reassign only for vendors backed by the
+/// runtime profile registry. `Opencode` is reserved in the event schema but
+/// does not have a shipping worker profile yet; `Mock` is a test backend, not
+/// a real-CLI reassignment target.
+fn backend_after_reassign(
+    requested: event_schema::Vendor,
+) -> Result<WorkerBackend, event_schema::Vendor> {
+    let vendor = match requested {
+        event_schema::Vendor::Claude => WorkerVendor::Claude,
+        event_schema::Vendor::Codex => WorkerVendor::Codex,
+        event_schema::Vendor::Gemini => WorkerVendor::Gemini,
+        event_schema::Vendor::Antigravity => WorkerVendor::Antigravity,
+        event_schema::Vendor::Kiro => WorkerVendor::Kiro,
+        event_schema::Vendor::Copilot => WorkerVendor::Copilot,
+        event_schema::Vendor::Opencode | event_schema::Vendor::Mock => {
+            return Err(requested);
+        }
+    };
+    Ok(WorkerBackend::RealCli(vendor))
+}
+
+fn worker_spawned_event(
+    worker_id: String,
+    task_index: u32,
+    task_title: String,
+    backend: WorkerBackend,
+    model: Option<String>,
+) -> MissionEventKind {
+    MissionEventKind::WorkerSpawned {
+        worker_id,
+        task_index,
+        task_title,
+        vendor: vendor_for_resolved_backend(backend),
+        model,
+    }
+}
+
+fn reassigned_worker_spawned_event(
+    worker_id: String,
+    task_title: String,
+    task: &TaskDescriptor,
+    backend: WorkerBackend,
+    spec_worker_model: Option<&str>,
+) -> MissionEventKind {
+    let model = resolve_worker_model_for_task(backend, task, spec_worker_model);
+    worker_spawned_event(worker_id, task.index, task_title, backend, model)
+}
+
 fn fallback_backend_after_vendor_crash(
     mission_backend: WorkerBackend,
     current_backend: WorkerBackend,
@@ -1985,6 +2063,95 @@ fn build_review_prompt(
 mod tests {
     use super::*;
     use crate::recovery::{spawn_quota_wakeup_task, VendorQuotaTracker};
+
+    #[test]
+    fn worker_spawned_event_carries_resolved_vendor_and_model() {
+        let event = worker_spawned_event(
+            "mock-1-r1".into(),
+            0,
+            "Reassigned task".into(),
+            WorkerBackend::RealCli(WorkerVendor::Codex),
+            Some("gpt-5.5".into()),
+        );
+
+        match event {
+            MissionEventKind::WorkerSpawned { vendor, model, .. } => {
+                assert_eq!(vendor, Some(event_schema::Vendor::Codex));
+                assert_eq!(model.as_deref(), Some("gpt-5.5"));
+            }
+            other => panic!("expected WorkerSpawned, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn reassign_accepts_every_profile_backed_vendor() {
+        for (requested, expected) in [
+            (event_schema::Vendor::Claude, WorkerVendor::Claude),
+            (event_schema::Vendor::Codex, WorkerVendor::Codex),
+            (event_schema::Vendor::Gemini, WorkerVendor::Gemini),
+            (event_schema::Vendor::Antigravity, WorkerVendor::Antigravity),
+            (event_schema::Vendor::Kiro, WorkerVendor::Kiro),
+            (event_schema::Vendor::Copilot, WorkerVendor::Copilot),
+        ] {
+            assert_eq!(
+                backend_after_reassign(requested),
+                Ok(WorkerBackend::RealCli(expected)),
+            );
+        }
+    }
+
+    #[test]
+    fn unsupported_reassign_vendor_is_not_silently_ignored() {
+        assert_eq!(
+            backend_after_reassign(event_schema::Vendor::Opencode),
+            Err(event_schema::Vendor::Opencode),
+        );
+        assert_eq!(
+            backend_after_reassign(event_schema::Vendor::Mock),
+            Err(event_schema::Vendor::Mock),
+        );
+    }
+
+    #[tokio::test]
+    async fn reassign_emits_fresh_worker_with_resolved_backend_and_model() {
+        let backend = backend_after_reassign(event_schema::Vendor::Codex).unwrap();
+        let task = TaskDescriptor {
+            index: 0,
+            title: "Reassigned task".into(),
+            ..Default::default()
+        };
+        let event_bus = MissionEventBus::new(4);
+        let mut event_rx = event_bus.subscribe();
+        let seq = Arc::new(AtomicU64::new(0));
+
+        emit(
+            &event_bus,
+            "mission-reassign",
+            &seq,
+            reassigned_worker_spawned_event(
+                "mock-1-r1".into(),
+                task.title.clone(),
+                &task,
+                backend,
+                Some("codex:gpt-5.5"),
+            ),
+        );
+
+        let event = event_rx.recv().await.unwrap();
+        match event.kind {
+            MissionEventKind::WorkerSpawned {
+                worker_id,
+                vendor,
+                model,
+                ..
+            } => {
+                assert_eq!(worker_id, "mock-1-r1");
+                assert_eq!(vendor, Some(event_schema::Vendor::Codex));
+                assert_eq!(model.as_deref(), Some("gpt-5.5"));
+            }
+            other => panic!("expected WorkerSpawned, got {other:?}"),
+        }
+    }
 
     #[test]
     fn recovery_decision_preserves_the_declared_retry_budget() {

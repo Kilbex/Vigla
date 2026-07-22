@@ -1,7 +1,7 @@
 use super::Supervisor;
 use crate::ids::rfc3339_now;
 use crate::parser::{
-    persist_and_emit, read_line_capped, LineRead, WorkerEventSink, MAX_LINE_BYTES,
+    persist_and_emit, read_line_resumable, LineRead, WorkerEventSink, MAX_LINE_BYTES,
 };
 use crate::repository::Repository;
 use adapter_core::{Adapter, AdapterExit};
@@ -37,6 +37,15 @@ impl Supervisor {
         let mut stderr_buf = BufReader::new(stderr);
         let mut stdout_line = String::new();
         let mut stderr_line = String::new();
+        // Persistent per-stream line accumulators. `read_line_resumable` is
+        // cancel-safe: when one select! arm wins, the losing read arm's
+        // future is dropped, but any bytes it already consumed live in these
+        // buffers and the next read resumes from them. A plain read_until
+        // (as `read_line_capped` uses) would lose those bytes, corrupting or
+        // dropping the line — real vendor stream-json event lines routinely
+        // span multiple pipe reads, so that loss is reachable in production.
+        let mut stdout_partial: Vec<u8> = Vec::new();
+        let mut stderr_partial: Vec<u8> = Vec::new();
         // Coordinating wrap mirrors what `supervise` does for the mock
         // path; without it, downstream tasks waiting on a real-CLI
         // upstream never unblock.
@@ -56,7 +65,7 @@ impl Supervisor {
 
         loop {
             tokio::select! {
-                outcome = read_line_capped(&mut stdout_buf, &mut stdout_line, MAX_LINE_BYTES),
+                outcome = read_line_resumable(&mut stdout_buf, &mut stdout_partial, &mut stdout_line, MAX_LINE_BYTES),
                     if !stdout_eof => {
                     match outcome {
                         Ok(LineRead::Line { truncated }) => {
@@ -84,7 +93,7 @@ impl Supervisor {
                         _ => stdout_eof = true,
                     }
                 }
-                outcome = read_line_capped(&mut stderr_buf, &mut stderr_line, MAX_LINE_BYTES),
+                outcome = read_line_resumable(&mut stderr_buf, &mut stderr_partial, &mut stderr_line, MAX_LINE_BYTES),
                     if !stderr_eof =>
                 {
                     match outcome {
@@ -137,6 +146,7 @@ impl Supervisor {
         if !cancelled {
             drain_with_timeout(
                 &mut stderr_buf,
+                &mut stderr_partial,
                 &mut stderr_line,
                 LogStream::Stderr,
                 adapter.as_mut(),
@@ -147,6 +157,7 @@ impl Supervisor {
             .await;
             drain_with_timeout(
                 &mut stdout_buf,
+                &mut stdout_partial,
                 &mut stdout_line,
                 LogStream::Stdout,
                 adapter.as_mut(),
@@ -231,6 +242,7 @@ impl Supervisor {
 #[allow(clippy::too_many_arguments)]
 async fn drain_with_timeout(
     buf: &mut BufReader<impl tokio::io::AsyncRead + Unpin>,
+    partial: &mut Vec<u8>,
     line: &mut String,
     stream: LogStream,
     adapter: &mut dyn Adapter,
@@ -246,7 +258,7 @@ async fn drain_with_timeout(
     loop {
         let outcome = tokio::time::timeout(
             PER_LINE_TIMEOUT,
-            read_line_capped(buf, line, MAX_LINE_BYTES),
+            read_line_resumable(buf, partial, line, MAX_LINE_BYTES),
         )
         .await;
         let Ok(read) = outcome else {

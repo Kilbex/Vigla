@@ -56,6 +56,8 @@ export default function PlanMindMap({ spec, plan, height = 280 }: Props) {
     () => buildMindMap(spec, plan),
     [spec, plan],
   );
+  const rootNode = nodes.find((node) => node.type === "root");
+  const truncationNote = rootNode?.data.truncation_note;
 
   const rfNodes = useMemo<PlanMapNode[]>(
     () =>
@@ -73,7 +75,8 @@ export default function PlanMindMap({ spec, plan, height = 280 }: Props) {
           ` plan-mind-map__flow-node--${n.data.branch}`,
         selectable: false,
         draggable: false,
-        ariaRole: "group",
+        focusable: true,
+        ariaLabel: n.data.tooltip,
       })),
     [nodes],
   );
@@ -104,6 +107,8 @@ export default function PlanMindMap({ spec, plan, height = 280 }: Props) {
         className="plan-mind-map"
         data-testid="plan-mind-map"
         style={{ height }}
+        role="group"
+        aria-label={`Mission plan map: ${rootNode?.data.label ?? "Mission"}`}
       >
         <ReactFlow
           nodes={rfNodes}
@@ -118,6 +123,8 @@ export default function PlanMindMap({ spec, plan, height = 280 }: Props) {
           nodesConnectable={false}
           elementsSelectable={false}
           nodesDraggable={false}
+          nodesFocusable
+          edgesFocusable={false}
           panOnDrag
           panOnScroll
           zoomOnScroll
@@ -139,6 +146,11 @@ export default function PlanMindMap({ spec, plan, height = 280 }: Props) {
             edges={edges}
           />
         </ReactFlow>
+        {truncationNote ? (
+          <div className="plan-mind-map__notice" role="note">
+            {truncationNote}
+          </div>
+        ) : null}
       </div>
     </ReactFlowProvider>
   );
@@ -153,6 +165,7 @@ function PlanMapNodeView({ data }: NodeProps<PlanMapNode>) {
         `plan-map-node--${data.branch}`,
       ].join(" ")}
       title={data.tooltip}
+      aria-label={data.tooltip}
       data-kind={data.kind}
       data-branch={data.branch}
     >

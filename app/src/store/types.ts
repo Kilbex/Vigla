@@ -203,10 +203,11 @@ export interface OpsStore extends OpsState {
   /// `replay.loading = true`. Subsequent `appendReplayPage` calls
   /// stream events in; `finishReplay` flips loading back off.
   beginReplay: (workerId: string) => void;
-  /// Append a page of events to `replay.events` and project them
-  /// into ops state via `applyEvent`. Safe to call repeatedly with
-  /// disjoint pages; `replay.position` tracks `events.length`.
-  appendReplayPage: (events: Event[]) => void;
+  /// Append a page owned by the current replay request and project its events
+  /// into ops state via `applyEvent`. The explicit request worker/session id
+  /// rejects late pages after another replay is selected while still allowing
+  /// aggregate recordings whose events contain several worker ids.
+  appendReplayPage: (requestWorkerId: string, events: Event[]) => void;
   /// Mark the replay-page stream complete. Flips
   /// `replay.loading = false`. No state change otherwise.
   finishReplay: () => void;
@@ -232,6 +233,7 @@ export interface OpsStore extends OpsState {
     vendor: Vendor,
     taskTitle: string,
     missionId: string,
+    model?: string | null,
   ) => void;
   updateMissionWorker: (
     id: string,

@@ -89,6 +89,18 @@ export default function PinNoteButton() {
     setError(null);
   }, []);
 
+  // Auto-dismiss the dialog shortly after a successful pin so the user sees
+  // the success badge before it closes itself. Driven by an effect (not a
+  // bare setTimeout in the submit handler) so its cleanup cancels the
+  // pending close whenever the dialog is manually closed, reopened, or
+  // unmounted — otherwise a stale timer would tear down a freshly reopened
+  // dialog and discard the user's newly typed note.
+  useEffect(() => {
+    if (!open || result?.outcome !== "pinned") return;
+    const closeTimer = window.setTimeout(() => setOpen(false), 1200);
+    return () => window.clearTimeout(closeTimer);
+  }, [open, result]);
+
   const handleSubmit = useCallback(async () => {
     const trimmed = body.trim();
     if (trimmed.length === 0 || submitting) return;
@@ -108,18 +120,13 @@ export default function PinNoteButton() {
       });
       if (r.status === "ok") {
         setResult(r.data);
-        // On a successful pin, clear the body so the next open is
-        // a clean slate. Keep the dialog open briefly so the user
-        // sees the success badge.
+        // On a successful pin, clear the body so the next open is a clean
+        // slate. The dialog is kept open briefly (so the user sees the
+        // success badge) and then auto-closed by the effect below, whose
+        // cleanup cancels the pending close if the dialog is manually
+        // closed/reopened in the meantime.
         if (r.data.outcome === "pinned") {
           setBody("");
-          window.setTimeout(() => {
-            setOpen(false);
-            // Defer the result-clear until the close animation
-            // completes; users who reopen quickly still see the
-            // previous outcome briefly, which is the right UX.
-            window.setTimeout(() => setResult(null), 250);
-          }, 1200);
         }
       } else {
         setError(r.error);
@@ -166,7 +173,7 @@ export default function PinNoteButton() {
             : "Start a mission first — memory is per-repository"
         }
       >
-        + pin note
+        Pin Note
       </button>
       {open ? (
         <div

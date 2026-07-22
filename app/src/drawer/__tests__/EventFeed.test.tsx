@@ -1,5 +1,5 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { act, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import type { Event } from "../../bindings";
 import EventFeed from "../EventFeed";
 
@@ -28,5 +28,39 @@ describe("EventFeed", () => {
     );
     expect(screen.queryByText("#1")).toBeNull();
     expect(screen.getByText("#501")).toBeTruthy();
+  });
+
+  it("follows and announces when a full render window rotates at the same count", () => {
+    vi.useFakeTimers();
+    const scrollSpy = vi.spyOn(
+      window.HTMLElement.prototype,
+      "scrollIntoView",
+    );
+
+    try {
+      const { rerender } = render(
+        <EventFeed
+          events={Array.from({ length: 500 }, (_, index) => event(index + 1))}
+        />,
+      );
+
+      expect(scrollSpy).toHaveBeenCalledTimes(1);
+      act(() => vi.advanceTimersByTime(500));
+
+      rerender(
+        <EventFeed
+          events={Array.from({ length: 500 }, (_, index) => event(index + 2))}
+        />,
+      );
+      act(() => vi.advanceTimersByTime(500));
+
+      expect(scrollSpy).toHaveBeenCalledTimes(2);
+      expect(
+        document.querySelector('[aria-live="polite"]'),
+      ).toHaveTextContent("Latest event #501.");
+    } finally {
+      scrollSpy.mockRestore();
+      vi.useRealTimers();
+    }
   });
 });

@@ -4,7 +4,7 @@
 import { create } from "zustand";
 import { subscribeWithSelector } from "zustand/middleware";
 import { commands } from "../bindings";
-import type { MissionEvent } from "../bindings";
+import type { MissionEvent, RevertOutcomeDto } from "../bindings";
 import { applyInboxAction } from "../inbox/InboxState";
 import type { InboxCard } from "../inbox/types";
 import {
@@ -27,6 +27,10 @@ interface MissionsStore extends MissionsState {
   ingest: (event: MissionEvent) => void;
   reset: () => void;
   dismissTerminalOverlay: () => void;
+  applyRevertOutcome: (
+    missionId: string,
+    outcome: RevertOutcomeDto,
+  ) => void;
   /**
    * A2: record the cwd used to start the most recent mission. Called
    * from the deploy panel right after `commands.startMission(...)`
@@ -57,6 +61,37 @@ export const useMissionsStore = create<MissionsStore>()(
     },
     reset: () => set(emptyMissionsState()),
     dismissTerminalOverlay: () => set({ terminalOverlayDismissed: true }),
+    applyRevertOutcome: (missionId, outcome) => {
+      let didUpdate = false;
+      set((state) => {
+        const active = state.active;
+        if (!active || active.id !== missionId) return state;
+        if (active.lifecycle !== "merged" && active.lifecycle !== "reverted") {
+          return state;
+        }
+        if (
+          active.lifecycle === "reverted" &&
+          active.restoredSha === outcome.restored_sha
+        ) {
+          return state;
+        }
+        didUpdate = true;
+        return {
+          ...state,
+          active: {
+            ...active,
+            lifecycle: "reverted",
+            restoredSha: outcome.restored_sha,
+            statusLine: `Merged changes reverted · restored SHA ${outcome.restored_sha}`,
+            attention: [],
+          },
+        };
+      });
+      const active = get().active;
+      if (didUpdate && active?.id === missionId) {
+        persistMissionTrustSnapshot(active);
+      }
+    },
     setCurrentRepoCwd: (cwd) => set({ currentRepoCwd: cwd }),
     setInboxForActive: (missionId, inbox) =>
       set((state) => {

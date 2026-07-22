@@ -10,7 +10,7 @@
 //! supervision pipeline with each stdout line; Step 11 wires it up
 //! end-to-end against a real `claude` subprocess. Step 10 (this
 //! file) only provides the byte→event function and tests against
-//! captured fixtures.
+//! deterministic synthetic fixtures that model the vendor line shapes.
 
 #![deny(missing_debug_implementations)]
 

@@ -7,6 +7,7 @@ import {
 } from "../missions/store";
 import {
   selectIsLead,
+  selectReviewStatus,
   selectSelectedWorkerId,
   selectSquadIds,
   selectWorker,
@@ -63,6 +64,21 @@ function defaultTabFor(state: string): Tab {
   return state === "done" || state === "failed" ? "result" : "feed";
 }
 
+function commandErrorMessage(error: unknown): string {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : "";
+  return message.trim() || "Unexpected IPC failure. Try again.";
+}
+
+interface WorkerActionContext {
+  workerId: string;
+  generation: number;
+}
+
 // Stable sentinels for the no-worker-selected branch. Inline `() => []`
 // allocates a new array on every getSnapshot call, defeating Zustand's
 // Object.is short-circuit and forcing useSyncExternalStore into an
@@ -86,8 +102,13 @@ export default function Drawer() {
   const assignWorkerToSquad = useOpsStore((s) => s.assignWorkerToSquad);
   const isLead = useOpsStore(workerId ? selectIsLead(workerId) : () => false);
   const setReviewStatus = useOpsStore((s) => s.setReviewStatus);
-  const getReviewStatus = useOpsStore((s) => s.getReviewStatus);
-  const reviewStatus = workerId ? getReviewStatus(workerId) : undefined;
+  // Subscribe to the reviewStatus slice reactively. Reading it via the
+  // imperative `getReviewStatus` getter only subscribed to that stable
+  // function reference, so clicking Accept/Reject/Park never re-rendered
+  // the buttons (stale highlight + wrong aria-pressed).
+  const reviewStatus = useOpsStore(
+    workerId ? selectReviewStatus(workerId) : () => undefined,
+  );
   const activeMission = useMissionsStore(selectActiveMission);
   const hasPlan = !!activeMission && activeMission.tasks.length > 0;
   const missionScoped = worker?.missionScoped ?? false;
@@ -105,6 +126,8 @@ export default function Drawer() {
   const [modelBusy, setModelBusy] = useState(false);
   const [modelError, setModelError] = useState<string | null>(null);
   const [modelStatus, setModelStatus] = useState<string | null>(null);
+  const activeWorkerIdRef = useRef(workerId);
+  const workerGenerationRef = useRef(0);
 
   // Reset the active tab to the state-appropriate default whenever the
   // selected worker changes. Manual tab choices still win within a
@@ -127,22 +150,48 @@ export default function Drawer() {
     };
   }, []);
 
-  // ESC closes the drawer.
+  // ESC closes the drawer — but not while the user is typing in one of the
+  // drawer's text controls (follow-up textarea, model input, feed search).
+  // keyboard.ts's global handler deliberately defers Escape to the local
+  // component (cascade §4.3, step 1 = text input); without this focus guard
+  // the first Escape would unmount the drawer and silently discard the
+  // in-progress follow-up draft.
   useEffect(() => {
     if (!workerId || missionScoped) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") select(null);
+      if (e.key !== "Escape") return;
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName?.toLowerCase();
+      if (
+        tag === "input" ||
+        tag === "textarea" ||
+        tag === "select" ||
+        target?.isContentEditable
+      ) {
+        return;
+      }
+      select(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [workerId, select]);
+  }, [workerId, missionScoped, select]);
 
-  // Clear any lingering stop error when the user switches to a
-  // different worker — error state is per-worker UX.
+  // Action state belongs to one drawer selection. Reset it when the
+  // worker changes; the generation token keeps a late completion
+  // from the previous worker from clearing or erroring the new one.
   useEffect(() => {
+    if (activeWorkerIdRef.current !== workerId) {
+      workerGenerationRef.current += 1;
+    }
+    activeWorkerIdRef.current = workerId;
+    setStopBusy(false);
     setStopError(null);
+    setRetryBusy(false);
     setRetryError(null);
+    setFollowUpPrompt("");
+    setFollowUpBusy(false);
     setFollowUpError(null);
+    setModelBusy(false);
     setModelError(null);
     setModelStatus(null);
     setModelInput(worker?.model ?? "");
@@ -177,53 +226,96 @@ export default function Drawer() {
 
   if (!workerId || !worker) return null;
 
+  const captureWorkerContext = (): WorkerActionContext => ({
+    workerId,
+    generation: workerGenerationRef.current,
+  });
+  const isCurrentWorkerContext = (context: WorkerActionContext): boolean =>
+    mountedRef.current &&
+    activeWorkerIdRef.current === context.workerId &&
+    workerGenerationRef.current === context.generation &&
+    useOpsStore.getState().selectedWorkerId === context.workerId;
+
   const stop = async () => {
+    const context = captureWorkerContext();
     setStopBusy(true);
     setStopError(null);
-    const r = await commands.stopWorker(workerId);
-    if (!mountedRef.current) return;
-    setStopBusy(false);
-    if (r.status === "error") setStopError(r.error);
+    try {
+      const r = await commands.stopWorker(workerId);
+      if (!isCurrentWorkerContext(context)) return;
+      if (r.status === "error") setStopError(r.error);
+    } catch (error) {
+      if (isCurrentWorkerContext(context)) {
+        setStopError(commandErrorMessage(error));
+      }
+    } finally {
+      if (isCurrentWorkerContext(context)) setStopBusy(false);
+    }
   };
 
   const retry = async () => {
+    const context = captureWorkerContext();
     setRetryBusy(true);
     setRetryError(null);
-    const r = await commands.retryWorker(workerId);
-    if (!mountedRef.current) return;
-    setRetryBusy(false);
-    if (r.status === "error") setRetryError(r.error);
+    try {
+      const r = await commands.retryWorker(workerId);
+      if (!isCurrentWorkerContext(context)) return;
+      if (r.status === "error") setRetryError(r.error);
+    } catch (error) {
+      if (isCurrentWorkerContext(context)) {
+        setRetryError(commandErrorMessage(error));
+      }
+    } finally {
+      if (isCurrentWorkerContext(context)) setRetryBusy(false);
+    }
   };
 
   const sendFollowUp = async () => {
     if (!followUpPrompt.trim()) return;
+    const context = captureWorkerContext();
+    const prompt = followUpPrompt;
     setFollowUpBusy(true);
     setFollowUpError(null);
-    const r = await commands.continueWorker(workerId, followUpPrompt);
-    if (!mountedRef.current) return;
-    setFollowUpBusy(false);
-    if (r.status === "error") {
-      setFollowUpError(r.error);
-    } else {
-      setFollowUpPrompt("");
+    try {
+      const r = await commands.continueWorker(workerId, prompt);
+      if (!isCurrentWorkerContext(context)) return;
+      if (r.status === "error") {
+        setFollowUpError(r.error);
+      } else {
+        setFollowUpPrompt("");
+      }
+    } catch (error) {
+      if (isCurrentWorkerContext(context)) {
+        setFollowUpError(commandErrorMessage(error));
+      }
+    } finally {
+      if (isCurrentWorkerContext(context)) setFollowUpBusy(false);
     }
   };
 
   const switchModel = async () => {
     const nextModel = modelInput.trim();
     if (!nextModel) return;
+    const context = captureWorkerContext();
     setModelBusy(true);
     setModelError(null);
     setModelStatus(null);
-    const r = await commands.switchWorkerModel(workerId, nextModel);
-    if (!mountedRef.current) return;
-    setModelBusy(false);
-    if (r.status === "error") {
-      setModelError(r.error);
-      return;
+    try {
+      const r = await commands.switchWorkerModel(workerId, nextModel);
+      if (!isCurrentWorkerContext(context)) return;
+      if (r.status === "error") {
+        setModelError(r.error);
+        return;
+      }
+      setWorkerModel(workerId, r.data.model);
+      setModelStatus(r.data.detail);
+    } catch (error) {
+      if (isCurrentWorkerContext(context)) {
+        setModelError(commandErrorMessage(error));
+      }
+    } finally {
+      if (isCurrentWorkerContext(context)) setModelBusy(false);
     }
-    setWorkerModel(workerId, r.data.model);
-    setModelStatus(r.data.detail);
   };
 
   const canRetry =
@@ -302,7 +394,7 @@ export default function Drawer() {
               className="comms-status comms-status-error"
               role="alert"
             >
-              {stopError}
+              stop failed: {stopError}
             </div>
           ) : null}
           {retryError ? (
@@ -451,7 +543,7 @@ export default function Drawer() {
                   className="comms-status comms-status-error"
                   role="alert"
                 >
-                  {followUpError}
+                  follow-up failed: {followUpError}
                 </div>
               ) : null}
               <textarea

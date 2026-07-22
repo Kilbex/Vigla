@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import Drawer from "../drawer/Drawer";
 import ReviewQueue from "../comms/ReviewQueue";
 
@@ -40,6 +40,26 @@ function seedWorker(workerId: string) {
   useOpsStore.getState().selectWorker(workerId);
 }
 
+function seedDoneWorker(workerId: string) {
+  useOpsStore.getState().registerWorker(workerId, "claude", "do the thing");
+  useOpsStore.setState((prev) => ({
+    workers: {
+      ...prev.workers,
+      [workerId]: { ...prev.workers[workerId], state: "done" },
+    },
+  }));
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 describe("Drawer stop", () => {
   it("surfaces stop IPC errors inline", async () => {
     seedWorker("w-stop-fail");
@@ -58,6 +78,23 @@ describe("Drawer stop", () => {
     });
     // Button must re-enable after the error.
     expect(screen.getByRole("button", { name: /^stop$/i })).not.toBeDisabled();
+  });
+
+  it("recovers from a rejected stop promise", async () => {
+    seedWorker("w-stop-reject");
+    (commands.stopWorker as any).mockRejectedValueOnce(
+      new Error("IPC transport unavailable"),
+    );
+
+    render(<Drawer />);
+    fireEvent.click(screen.getByRole("button", { name: /^stop$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "stop failed: IPC transport unavailable",
+      );
+    });
+    expect(screen.getByRole("button", { name: /^stop$/i })).toBeEnabled();
   });
 
   it("audit-r5: drawer-head structure has title+actions in a sub-row, with squad assignment as a separate full-width row", () => {
@@ -114,6 +151,28 @@ describe("Drawer stop", () => {
     await waitFor(() =>
       expect(screen.getByText(/saved claude-opus-4-7.*next continuation/i)).toBeInTheDocument(),
     );
+  });
+
+  it("preserves the model draft and recovers after a rejected model switch", async () => {
+    seedDoneWorker("w-model-reject");
+    useOpsStore.getState().selectWorker("w-model-reject");
+    (commands.switchWorkerModel as any).mockRejectedValueOnce(
+      new Error("model IPC disconnected"),
+    );
+
+    render(<Drawer />);
+    const input = screen.getByLabelText(/model name/i) as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "claude-opus-draft" } });
+    fireEvent.click(screen.getByRole("button", { name: /^use next$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "model switch failed: model IPC disconnected",
+      );
+    });
+    expect(input).toHaveValue("claude-opus-draft");
+    expect(input).toBeEnabled();
+    expect(screen.getByRole("button", { name: /^use next$/i })).toBeEnabled();
   });
 
   it("lands on the result tab and shows completionSummary for a done worker", () => {
@@ -246,6 +305,24 @@ describe("Drawer retry (Step 25)", () => {
       );
     });
   });
+
+  it("recovers from a rejected retry promise", async () => {
+    seedDoneWorker("w-retry-reject");
+    useOpsStore.getState().selectWorker("w-retry-reject");
+    (commands.retryWorker as any).mockRejectedValueOnce(
+      new Error("retry IPC disconnected"),
+    );
+
+    render(<Drawer />);
+    fireEvent.click(screen.getByRole("button", { name: /^retry$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "retry failed: retry IPC disconnected",
+      );
+    });
+    expect(screen.getByRole("button", { name: /^retry$/i })).toBeEnabled();
+  });
 });
 
 describe("Drawer follow-up input (Step 25)", () => {
@@ -314,6 +391,70 @@ describe("Drawer follow-up input (Step 25)", () => {
     await waitFor(() => {
       expect(screen.getByRole("alert")).toHaveTextContent("session_id_missing");
     });
+  });
+
+  it("preserves the follow-up draft and recovers after a rejected promise", async () => {
+    seedDoneWorker("w-continue-reject");
+    useOpsStore.getState().selectWorker("w-continue-reject");
+    (commands.continueWorker as any).mockRejectedValueOnce(
+      new Error("continue IPC disconnected"),
+    );
+
+    render(<Drawer />);
+    const input = screen.getByLabelText(/follow-up prompt/i) as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "keep this draft" } });
+    fireEvent.click(screen.getByRole("button", { name: /send follow-up/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "follow-up failed: continue IPC disconnected",
+      );
+    });
+    expect(input).toHaveValue("keep this draft");
+    expect(input).toBeEnabled();
+    expect(screen.getByRole("button", { name: /send follow-up/i })).toBeEnabled();
+  });
+
+  it("ignores a stale completion after switching workers", async () => {
+    seedDoneWorker("w-A");
+    seedDoneWorker("w-B");
+    useOpsStore.getState().selectWorker("w-A");
+    const requestA = deferred<{ status: "ok"; data: null }>();
+    const requestB = deferred<{ status: "ok"; data: null }>();
+    (commands.continueWorker as any)
+      .mockReturnValueOnce(requestA.promise)
+      .mockReturnValueOnce(requestB.promise);
+
+    render(<Drawer />);
+    const inputA = screen.getByLabelText(/follow-up prompt/i);
+    fireEvent.change(inputA, { target: { value: "prompt for A" } });
+    fireEvent.click(screen.getByRole("button", { name: /send follow-up/i }));
+
+    act(() => useOpsStore.getState().selectWorker("w-B"));
+    await waitFor(() => {
+      expect(screen.getByLabelText(/follow-up prompt/i)).toHaveValue("");
+      expect(screen.getByLabelText(/follow-up prompt/i)).toBeEnabled();
+    });
+
+    const inputB = screen.getByLabelText(/follow-up prompt/i);
+    fireEvent.change(inputB, { target: { value: "prompt for B" } });
+    fireEvent.click(screen.getByRole("button", { name: /send follow-up/i }));
+    expect(inputB).toBeDisabled();
+
+    await act(async () => {
+      requestA.reject(new Error("late failure from A"));
+      await Promise.resolve();
+    });
+
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(inputB).toHaveValue("prompt for B");
+    expect(inputB).toBeDisabled();
+
+    await act(async () => {
+      requestB.resolve({ status: "ok", data: null });
+      await requestB.promise;
+    });
+    expect(screen.getByLabelText(/follow-up prompt/i)).toHaveValue("");
   });
 });
 

@@ -77,6 +77,7 @@ function renderStation(snap: WorkerSnapshot) {
 beforeEach(() => {
   useOpsStore.getState().reset();
   __resetWorkerIdentityCache();
+  (commands.getWorkerInfo as unknown as ReturnType<typeof vi.fn>).mockReset();
   // Default: identity layer reports "missing" so tests fall back to
   // the snapshot vendor/model. Individual tests override per case.
   (commands.getWorkerInfo as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
@@ -446,6 +447,48 @@ describe("Station — footer counters (P2-18)", () => {
 });
 
 describe("Station — identity overlay (P1-6)", () => {
+  it("uses authoritative mission-event identity without polling WorkerInfo", async () => {
+    renderStation(
+      snapshot({
+        id: "mock-1",
+        vendor: "codex",
+        model: "gpt-5.5",
+        missionScoped: true,
+      }),
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(commands.getWorkerInfo).not.toHaveBeenCalled();
+    expect(screen.getByTestId("worker-avatar")).toHaveAttribute(
+      "data-vendor",
+      "codex",
+    );
+    expect(screen.getByText("gpt-5.5")).toBeInTheDocument();
+  });
+
+  it("uses legacy mission ID inference without polling WorkerInfo", async () => {
+    renderStation(
+      snapshot({
+        id: "wkr-gemini-0001",
+        vendor: "gemini",
+        missionScoped: true,
+      }),
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(commands.getWorkerInfo).not.toHaveBeenCalled();
+    expect(screen.getByTestId("worker-avatar")).toHaveAttribute(
+      "data-vendor",
+      "gemini",
+    );
+  });
+
   it("falls back to snapshot vendor when WorkerInfo lookup is missing", async () => {
     (commands.getWorkerInfo as ReturnType<typeof vi.fn>).mockResolvedValue({
       status: "ok",
@@ -487,6 +530,42 @@ describe("Station — identity overlay (P1-6)", () => {
     });
     expect(screen.getByText(/Codex/)).toBeInTheDocument();
     expect(screen.getByText("gpt-5.5")).toBeInTheDocument();
+  });
+
+  it("prefers a newer live model over the cached WorkerInfo model", async () => {
+    (commands.getWorkerInfo as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: "ok",
+      data: {
+        id: "w-id-live-model",
+        name: "x",
+        vendor: "claude",
+        cli_binary: "claude",
+        cli_version: null,
+        cwd: "/tmp",
+        model: "cached-old-model",
+        spawned_at: "2026-01-01T00:00:00Z",
+        ended_at: null,
+      },
+    });
+    const initial = snapshot({ id: "w-id-live-model", model: null });
+    const { rerender } = renderStation(initial);
+
+    await waitFor(() => {
+      expect(screen.getByText("cached-old-model")).toBeInTheDocument();
+    });
+
+    rerender(
+      <ReactFlowProvider>
+        <Station
+          {...(nodeProps(
+            snapshot({ id: "w-id-live-model", model: "live-new-model" }),
+          ) as unknown as React.ComponentProps<typeof Station>)}
+        />
+      </ReactFlowProvider>,
+    );
+
+    expect(screen.getByText("live-new-model")).toBeInTheDocument();
+    expect(screen.queryByText("cached-old-model")).toBeNull();
   });
 
   it("hides the vendor chip when the effective vendor stays at the mock fallback", () => {

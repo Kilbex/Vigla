@@ -3,7 +3,8 @@
 These tasks are scoped so a new contributor can land a first adapter PR in
 under two hours.
 
-When filing these as GitHub issues, use labels such as `good first issue`, `adapter`, `docs`, `test`, and `help wanted`.
+When filing these as GitHub issues, use labels such as `good first issue`,
+`adapter`, `documentation`, `test`, and `help wanted`.
 
 ## Adapter Tasks
 
@@ -19,16 +20,14 @@ When filing these as GitHub issues, use labels such as `good first issue`, `adap
 
 | Task | Why it helps | Expected files | Suggested labels |
 | --- | --- | --- | --- |
-| Improve screenshot alt text in the README | Makes the product tour more useful to screen-reader users | `README.md` | `good first issue`, `docs`, `accessibility` |
-| Expand the "Real CLI adapters" section with troubleshooting | Helps users set PATH and credentials correctly | `README.md` | `good first issue`, `docs` |
-| Add a glossary entry for one mission event | Makes frontend and adapter vocabulary clearer | `ARCHITECTURE.md` or a future docs file | `good first issue`, `docs` |
+| Expand the "Real CLI adapters" section with troubleshooting | Helps users set PATH and credentials correctly | `README.md` | `good first issue`, `documentation` |
+| Add a glossary entry for one mission event | Makes frontend and adapter vocabulary clearer | `ARCHITECTURE.md` or a future docs file | `good first issue`, `documentation` |
 
 ## Code Tasks
 
 | Task | Why it helps | Expected files | Suggested labels |
 | --- | --- | --- | --- |
 | Add unit tests around `host_services::worker_backend_for_model` edge cases | Keeps host routing out of Tauri glue | `crates/orchestrator/src/host_services.rs` | `good first issue`, `test` |
-| Add a repository replay regression for an unknown future event | Preserves forward compatibility | `crates/orchestrator/tests/persistence.rs` | `good first issue`, `test` |
 | Add a focused parser cap test for stderr noise | Protects performance and memory safety | `crates/orchestrator/src/parser.rs` or adapter tests | `good first issue`, `test`, `resilience` |
 
 ## Maintainer Checklist for Newcomer Issues

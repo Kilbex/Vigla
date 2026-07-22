@@ -190,6 +190,13 @@ async fn happy_path_single_task_emits_expected_event_sequence() {
         matches!(k, MissionEventKind::WorkerSpawned { .. })
     })
     .expect("WorkerSpawned");
+    match &events[spawn_idx].kind {
+        MissionEventKind::WorkerSpawned { vendor, model, .. } => {
+            assert_eq!(*vendor, Some(event_schema::Vendor::Mock));
+            assert_eq!(model, &None);
+        }
+        other => panic!("expected WorkerSpawned, got {other:?}"),
+    }
     let submit_idx = position(&events, |k| {
         matches!(k, MissionEventKind::WorkerResultSubmitted { .. })
     })

@@ -1,6 +1,7 @@
 import RevertButton from "../inbox/RevertButton";
 import CleanupButton from "../inbox/CleanupButton";
 import RiskBandBadge from "../inbox/RiskBandBadge";
+import type { RevertOutcomeDto } from "../bindings";
 import {
   formatTestsForMission,
   finalRollbackTagForMission,
@@ -13,6 +14,7 @@ interface Props {
   elapsed?: string;
   onDone: () => void;
   onViewChanges: () => void;
+  onReverted: (outcome: RevertOutcomeDto) => void;
 }
 
 export default function MissionTerminalOutcome({
@@ -20,6 +22,7 @@ export default function MissionTerminalOutcome({
   elapsed,
   onDone,
   onViewChanges,
+  onReverted,
 }: Props) {
   const tests = formatTestsForMission(mission);
   const integratedCount = mission.tasks.filter(
@@ -112,6 +115,7 @@ export default function MissionTerminalOutcome({
           <RevertButton
             missionId={mission.id}
             rollbackAnchor={rollbackAnchor}
+            onReverted={onReverted}
           />
         ) : null}
         {canCleanUp ? <CleanupButton missionId={mission.id} /> : null}
@@ -131,6 +135,8 @@ function terminalHeadline(lifecycle: MissionLifecycle): string {
   switch (lifecycle) {
     case "merged":
       return "Merged";
+    case "reverted":
+      return "Reverted";
     case "discarded":
       return "Discarded";
     case "extended":
@@ -148,6 +154,11 @@ function terminalDetail(mission: ActiveMission): string {
   }
   if (mission.lifecycle === "merged") {
     return mission.completionSummary ?? "Mission output merged into the target branch.";
+  }
+  if (mission.lifecycle === "reverted") {
+    return mission.restoredSha
+      ? `Merged changes were reverted. Restored SHA: ${mission.restoredSha}.`
+      : "Merged changes were reverted on the target branch.";
   }
   if (mission.lifecycle === "discarded") {
     return "Mission output discarded; no changes kept.";

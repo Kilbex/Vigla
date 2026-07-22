@@ -1690,6 +1690,332 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn concurrent_barrier_reflection_has_one_effective_caller() {
+        let (kernel, _root, _worktree) = fresh_kernel().await;
+        let note_id = kernel
+            .store
+            ._test_seed_owned_note(NewNote {
+                kind: NoteKind::Standard(StandardNoteKind::Fact),
+                scope: Scope {
+                    kind: ScopeKind::Repo,
+                    value: None,
+                },
+                body: "concurrent barrier fact".into(),
+            })
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO memory_bundles \
+             (bundle_id, mission_id, worker_id, turn, vendor, hash, page_table_json, \
+              trace_json, rendered_path, composed_event_id) \
+             VALUES ('bc', 'mission-concurrent', 'wc', 0, 'claude', 'h', ?, '{}', '/dev/null', 'ec')",
+        )
+        .bind(format!(r#"[{{"slot":0,"note_id":"{note_id}","tokens":1}}]"#))
+        .execute(&kernel.pool)
+        .await
+        .unwrap();
+
+        let rendezvous = tokio::sync::Barrier::new(2);
+        let first = crate::memory::reflection::on_accept_with_concurrency_rendezvous(
+            &kernel.pool,
+            &kernel.store,
+            "mission-concurrent",
+            &rendezvous,
+        );
+        let second = crate::memory::reflection::on_accept_with_concurrency_rendezvous(
+            &kernel.pool,
+            &kernel.store,
+            "mission-concurrent",
+            &rendezvous,
+        );
+        let (first, second) = tokio::join!(first, second);
+        let outcomes = [first.unwrap(), second.unwrap()];
+
+        assert_eq!(
+            outcomes
+                .iter()
+                .filter(|outcome| outcome.already_processed)
+                .count(),
+            1,
+        );
+        assert_eq!(
+            outcomes
+                .iter()
+                .filter(|outcome| !outcome.already_processed)
+                .count(),
+            1,
+        );
+        let (barriers,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM memory_events WHERE type = 'barrier' AND mission_id = ?",
+        )
+        .bind("mission-concurrent")
+        .fetch_one(&kernel.pool)
+        .await
+        .unwrap();
+        assert_eq!(barriers, 1);
+        let (witnesses,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM memory_witnesses WHERE note_id = ? AND kind = 'user_accepted'",
+        )
+        .bind(&note_id)
+        .fetch_one(&kernel.pool)
+        .await
+        .unwrap();
+        assert_eq!(witnesses, 1);
+    }
+
+    #[tokio::test]
+    async fn barrier_reflection_is_exactly_once_across_processes() {
+        const CHILD: &str = "VIGLA_BARRIER_PROCESS_TEST_CHILD";
+        const DB_PATH: &str = "VIGLA_BARRIER_PROCESS_TEST_DB";
+        const MEMORY_ROOT: &str = "VIGLA_BARRIER_PROCESS_TEST_ROOT";
+        const READY_PATH: &str = "VIGLA_BARRIER_PROCESS_TEST_READY";
+        const GO_PATH: &str = "VIGLA_BARRIER_PROCESS_TEST_GO";
+        const MISSION_ID: &str = "mission-cross-process";
+
+        if std::env::var_os(CHILD).is_some() {
+            let db_path = std::env::var(DB_PATH).unwrap();
+            let memory_root = std::path::PathBuf::from(std::env::var_os(MEMORY_ROOT).unwrap());
+            let ready_path = std::path::PathBuf::from(std::env::var_os(READY_PATH).unwrap());
+            let go_path = std::path::PathBuf::from(std::env::var_os(GO_PATH).unwrap());
+            let opts = SqliteConnectOptions::from_str(&format!("sqlite://{db_path}"))
+                .unwrap()
+                .create_if_missing(false);
+            let pool = SqlitePoolOptions::new()
+                .max_connections(5)
+                .connect_with(opts)
+                .await
+                .unwrap();
+            let kernel = MemoryKernel::open(pool, memory_root).await.unwrap();
+            std::fs::write(&ready_path, "ready").unwrap();
+            while !go_path.exists() {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+            kernel
+                .on_mission_barrier(MISSION_ID, BarrierKind::Accept)
+                .await
+                .unwrap();
+            return;
+        }
+
+        let root = TempDir::new().unwrap();
+        let db_path = root.path().join("memory.sqlite");
+        let opts =
+            SqliteConnectOptions::from_str(&format!("sqlite://{}", db_path.to_string_lossy()))
+                .unwrap()
+                .create_if_missing(true);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(5)
+            .connect_with(opts)
+            .await
+            .unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        let kernel = MemoryKernel::open(pool, root.path().to_path_buf())
+            .await
+            .unwrap();
+        let note_id = kernel
+            .store
+            ._test_seed_owned_note(NewNote {
+                kind: NoteKind::Standard(StandardNoteKind::Fact),
+                scope: Scope {
+                    kind: ScopeKind::Repo,
+                    value: None,
+                },
+                body: "shared sqlite barrier fact".into(),
+            })
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO memory_bundles \
+             (bundle_id, mission_id, worker_id, turn, vendor, hash, page_table_json, \
+              trace_json, rendered_path, composed_event_id) \
+             VALUES ('bcp', ?, 'wcp', 0, 'claude', 'h', ?, '{}', '/dev/null', 'ecp')",
+        )
+        .bind(MISSION_ID)
+        .bind(format!(
+            r#"[{{"slot":0,"note_id":"{note_id}","tokens":1}}]"#
+        ))
+        .execute(&kernel.pool)
+        .await
+        .unwrap();
+
+        let go_path = root.path().join("go");
+        let ready_paths = [root.path().join("ready-1"), root.path().join("ready-2")];
+        let mut children = Vec::new();
+        for ready_path in &ready_paths {
+            children.push(
+                std::process::Command::new(std::env::current_exe().unwrap())
+                    .args([
+                        "--exact",
+                        "memory::kernel::tests::barrier_reflection_is_exactly_once_across_processes",
+                        "--nocapture",
+                    ])
+                    .env(CHILD, "1")
+                    .env(DB_PATH, &db_path)
+                    .env(MEMORY_ROOT, root.path())
+                    .env(READY_PATH, ready_path)
+                    .env(GO_PATH, &go_path)
+                    .spawn()
+                    .unwrap(),
+            );
+        }
+        let ready_deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while ready_paths.iter().any(|path| !path.exists()) {
+            assert!(
+                std::time::Instant::now() < ready_deadline,
+                "barrier child processes did not become ready"
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        std::fs::write(&go_path, "go").unwrap();
+        for mut child in children {
+            let status = tokio::task::spawn_blocking(move || child.wait())
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(status.success(), "barrier child failed: {status}");
+        }
+
+        let (barriers,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM memory_events WHERE type = 'barrier' AND mission_id = ?",
+        )
+        .bind(MISSION_ID)
+        .fetch_one(&kernel.pool)
+        .await
+        .unwrap();
+        let (witnesses,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM memory_witnesses WHERE note_id = ? AND kind = 'user_accepted'",
+        )
+        .bind(&note_id)
+        .fetch_one(&kernel.pool)
+        .await
+        .unwrap();
+        let (confidence_events,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM memory_events WHERE type = 'confidence_computed' \
+             AND payload_json LIKE ?",
+        )
+        .bind(format!("%\"note_id\":\"{note_id}\"%"))
+        .fetch_one(&kernel.pool)
+        .await
+        .unwrap();
+        assert_eq!(barriers, 1);
+        assert_eq!(witnesses, 1);
+        assert_eq!(confidence_events, 1);
+    }
+
+    #[tokio::test]
+    async fn barrier_reflection_recovers_after_a_partial_failure() {
+        // Regression: the barrier event is sealed only AFTER the per-note
+        // loop succeeds. If a note's body file is transiently unreadable
+        // mid-loop, the pass fails WITHOUT sealing the barrier, so a retry
+        // re-enters and completes the un-processed notes — instead of the
+        // idempotence gate permanently skipping them (which would leave an
+        // accepted mission's memory un-witnessed forever). The stable,
+        // deterministic barrier id keeps the retry from duplicating the
+        // witness the failed pass already recorded.
+        let (kernel, _root, _worktree) = fresh_kernel().await;
+        let n = kernel
+            .store
+            ._test_seed_owned_note(NewNote {
+                kind: NoteKind::Standard(StandardNoteKind::Fact),
+                scope: Scope {
+                    kind: ScopeKind::Repo,
+                    value: None,
+                },
+                body: "durable fact".into(),
+            })
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO memory_bundles \
+             (bundle_id, mission_id, worker_id, turn, vendor, hash, page_table_json, \
+              trace_json, rendered_path, composed_event_id) \
+             VALUES ('bp', 'mission-partial', 'wp', 0, 'claude', 'h', ?, '{}', '/dev/null', 'ep')",
+        )
+        .bind(format!(r#"[{{"slot":0,"note_id":"{n}","tokens":1}}]"#))
+        .execute(&kernel.pool)
+        .await
+        .unwrap();
+
+        // Orphan the note's body file so try_promote -> note_show fails
+        // partway through the loop.
+        let body = kernel.store.root().join(format!("notes/{n}.md"));
+        let backup = std::fs::read(&body).unwrap();
+        std::fs::remove_file(&body).unwrap();
+
+        // First call fails while preloading the body, before any transactional
+        // witness or barrier effect is committed.
+        let first = kernel
+            .on_mission_barrier("mission-partial", BarrierKind::Accept)
+            .await;
+        assert!(first.is_err(), "partial reflection must surface the error");
+        let (barriers,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM memory_events WHERE type = 'barrier' AND mission_id = ?",
+        )
+        .bind("mission-partial")
+        .fetch_one(&kernel.pool)
+        .await
+        .unwrap();
+        assert_eq!(barriers, 0, "barrier must not be sealed on a failed pass");
+        let (witnesses_after_failure,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM memory_witnesses WHERE note_id = ? AND kind = 'user_accepted'",
+        )
+        .bind(&n)
+        .fetch_one(&kernel.pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            witnesses_after_failure, 0,
+            "a failed barrier attempt must roll back its witness and audit effects"
+        );
+
+        // Restore the body and retry: the gate is still open, so the pass
+        // re-enters and this time seals the barrier.
+        std::fs::write(&body, &backup).unwrap();
+        let second = kernel
+            .on_mission_barrier("mission-partial", BarrierKind::Accept)
+            .await
+            .unwrap();
+        assert!(!second.already_processed, "retry must re-enter, not no-op");
+
+        let (barriers,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM memory_events WHERE type = 'barrier' AND mission_id = ?",
+        )
+        .bind("mission-partial")
+        .fetch_one(&kernel.pool)
+        .await
+        .unwrap();
+        assert_eq!(barriers, 1, "retry must seal exactly one barrier");
+
+        let (event_id,): (String,) = sqlx::query_as(
+            "SELECT event_id FROM memory_events WHERE type = 'barrier' AND mission_id = ?",
+        )
+        .bind("mission-partial")
+        .fetch_one(&kernel.pool)
+        .await
+        .unwrap();
+        let barrier_uuid = uuid::Uuid::parse_str(&event_id).unwrap();
+        assert_eq!(barrier_uuid.get_version_num(), 7);
+        assert_eq!(barrier_uuid.get_variant(), uuid::Variant::RFC4122);
+
+        // The successful attempt records exactly one witness.
+        let (witness_rows,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM memory_witnesses WHERE note_id = ? AND kind = 'user_accepted'",
+        )
+        .bind(&n)
+        .fetch_one(&kernel.pool)
+        .await
+        .unwrap();
+        assert_eq!(witness_rows, 1, "witness must not be duplicated on retry");
+
+        // Now that the barrier is sealed, a third call is a no-op.
+        let third = kernel
+            .on_mission_barrier("mission-partial", BarrierKind::Accept)
+            .await
+            .unwrap();
+        assert!(third.already_processed);
+    }
+
+    #[tokio::test]
     async fn normalize_emits_normalized_event() {
         let (kernel, _root, _worktree) = fresh_kernel().await;
         let ProposalOutcome::Accepted { proposal_id } = kernel

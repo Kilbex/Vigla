@@ -163,6 +163,10 @@ fn assert_vigla_dir_only_contains_worktrees(root: &Path) {
     );
 }
 
+fn completed_execution_receiver() -> watch::Receiver<bool> {
+    watch::channel(true).1
+}
+
 #[tokio::test]
 async fn plan_decisions_are_generation_bound_and_single_claim() {
     let (_temp, root) = make_sandbox_repo();
@@ -176,6 +180,7 @@ async fn plan_decisions_are_generation_bound_and_single_claim() {
         event_bus: MissionEventBus::new(8),
         state_tx: Arc::new(state_tx_raw),
         state_rx,
+        execution_done_rx: completed_execution_receiver(),
         cancel: CancelToken::new(),
         seq: Arc::new(AtomicU64::new(0)),
         resolve_lock: Arc::new(Mutex::new(())),
@@ -218,6 +223,7 @@ async fn abort_from_parked_decision_states_is_prompt_and_terminal() {
             event_bus: MissionEventBus::new(8),
             state_tx: Arc::new(state_tx_raw),
             state_rx,
+            execution_done_rx: completed_execution_receiver(),
             cancel: CancelToken::new(),
             seq: Arc::new(AtomicU64::new(0)),
             resolve_lock: Arc::new(Mutex::new(())),
@@ -239,6 +245,153 @@ async fn abort_from_parked_decision_states_is_prompt_and_terminal() {
             .iter()
             .any(|kind| matches!(kind, MissionEventKind::Aborted { .. })));
     }
+}
+
+#[tokio::test]
+async fn abort_without_a_disposition_intent_does_not_require_git_reconciliation() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace =
+        MissionWorkspace::new(temp.path().to_path_buf(), "parked-no-journal".into()).unwrap();
+    let (state_tx_raw, state_rx) = watch::channel(MissionState::CompletePendingMerge);
+    let (plan_decision_tx, _) = mpsc::channel(1);
+    let runtime = MissionRuntime {
+        mission_id: "parked-no-journal".into(),
+        spec: ok_spec(),
+        workspace,
+        event_bus: MissionEventBus::new(8),
+        state_tx: Arc::new(state_tx_raw),
+        state_rx,
+        execution_done_rx: completed_execution_receiver(),
+        cancel: CancelToken::new(),
+        seq: Arc::new(AtomicU64::new(0)),
+        resolve_lock: Arc::new(Mutex::new(())),
+        plan_decision_tx,
+        plan_generation: Arc::new(AtomicU32::new(0)),
+        plan_decision_open: Arc::new(AtomicBool::new(false)),
+        memory: None,
+        disposition_store: Arc::new(Mutex::new(None)),
+    };
+
+    runtime.abort().await.unwrap();
+
+    assert_eq!(runtime.state(), MissionState::Aborted);
+}
+
+#[tokio::test]
+async fn abort_drives_a_mission_that_parks_after_the_state_sample_to_terminal() {
+    // Regression: abort() samples the state, cancels, then waits. If the
+    // background task moves the mission into a parked decision state
+    // (CompletePendingMerge / Attention) AFTER that sample — a TOCTOU the
+    // background task can hit because it does not hold resolve_lock — the
+    // wait loop must still drive the mission to Aborted instead of blocking
+    // on rx.changed() forever (which would hold resolve_lock and deadlock
+    // every later resolve()/abort()).
+    for parked in [MissionState::CompletePendingMerge, MissionState::Attention] {
+        let (_temp, root) = make_sandbox_repo();
+        let workspace = MissionWorkspace::new(root, format!("toctou-{parked:?}")).unwrap();
+        let (state_tx_raw, state_rx) = watch::channel(MissionState::Executing);
+        let state_tx = Arc::new(state_tx_raw);
+        let feeder_tx = Arc::clone(&state_tx);
+        let (execution_done_tx, execution_done_rx) = watch::channel(false);
+        let (plan_decision_tx, _) = mpsc::channel(1);
+        let runtime = MissionRuntime {
+            mission_id: format!("toctou-{parked:?}"),
+            spec: ok_spec(),
+            workspace,
+            event_bus: MissionEventBus::new(8),
+            state_tx,
+            state_rx,
+            execution_done_rx,
+            cancel: CancelToken::new(),
+            seq: Arc::new(AtomicU64::new(0)),
+            resolve_lock: Arc::new(Mutex::new(())),
+            plan_decision_tx,
+            plan_generation: Arc::new(AtomicU32::new(0)),
+            plan_decision_open: Arc::new(AtomicBool::new(false)),
+            memory: None,
+            disposition_store: Arc::new(Mutex::new(None)),
+        };
+
+        // abort() samples Executing synchronously and parks on rx.changed();
+        // this delayed feed moves the state into the parked variant only
+        // after abort is already waiting, exercising the in-loop transition.
+        let feeder = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            feeder_tx.send(parked).ok();
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            execution_done_tx.send(true).ok();
+        });
+
+        tokio::time::timeout(Duration::from_millis(500), runtime.abort())
+            .await
+            .expect("abort hung after the mission parked post-sample")
+            .expect("abort failed");
+        feeder.await.ok();
+        assert_eq!(runtime.state(), MissionState::Aborted);
+        assert!(runtime
+            .event_bus
+            .snapshot_kinds()
+            .iter()
+            .any(|kind| matches!(kind, MissionEventKind::Aborted { .. })));
+    }
+}
+
+#[tokio::test]
+async fn abort_waits_for_parked_producer_events_before_publishing_aborted() {
+    let (_temp, root) = make_sandbox_repo();
+    let workspace = MissionWorkspace::new(root, "parked-ordering-0001".into()).unwrap();
+    let (state_tx_raw, state_rx) = watch::channel(MissionState::CompletePendingMerge);
+    let (execution_done_tx, execution_done_rx) = watch::channel(false);
+    let (plan_decision_tx, _) = mpsc::channel(1);
+    let event_bus = MissionEventBus::new(8);
+    let seq = Arc::new(AtomicU64::new(0));
+    let runtime = MissionRuntime {
+        mission_id: "parked-ordering-0001".into(),
+        spec: ok_spec(),
+        workspace,
+        event_bus: event_bus.clone(),
+        state_tx: Arc::new(state_tx_raw),
+        state_rx,
+        execution_done_rx,
+        cancel: CancelToken::new(),
+        seq: Arc::clone(&seq),
+        resolve_lock: Arc::new(Mutex::new(())),
+        plan_decision_tx,
+        plan_generation: Arc::new(AtomicU32::new(0)),
+        plan_decision_open: Arc::new(AtomicBool::new(false)),
+        memory: None,
+        disposition_store: Arc::new(Mutex::new(None)),
+    };
+    let producer = tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        emit(
+            &event_bus,
+            "parked-ordering-0001",
+            &seq,
+            MissionEventKind::Completed {
+                summary: "producer finished".into(),
+                files_changed: 1,
+            },
+        );
+        execution_done_tx.send(true).ok();
+    });
+
+    runtime.abort().await.unwrap();
+    producer.await.unwrap();
+
+    let events = runtime.event_bus.snapshot_kinds();
+    let completed = events
+        .iter()
+        .position(|event| matches!(event, MissionEventKind::Completed { .. }))
+        .expect("producer completion event");
+    let aborted = events
+        .iter()
+        .position(|event| matches!(event, MissionEventKind::Aborted { .. }))
+        .expect("abort event");
+    assert!(
+        completed < aborted,
+        "terminal abort overtook producer events"
+    );
 }
 
 fn assert_no_mission_artifacts(root: &Path, mission_id: &str) {
@@ -592,6 +745,73 @@ async fn resolve_returns_only_after_terminal_outcome_is_durable() {
             .unwrap()
             .is_empty());
     }
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn abort_reconciles_a_journaled_git_merge_instead_of_recording_aborted() {
+    let (_temp, root) = make_sandbox_repo();
+    let mission_id = "abort-after-git-merge-0001";
+    let runtime = MissionRuntime::start(
+        ok_spec(),
+        MissionWorkspace::new(root.clone(), mission_id.into()).unwrap(),
+        MockTimingConfig::fast(),
+    )
+    .await
+    .unwrap();
+    let repository = crate::Repository::open_in_memory().await.unwrap();
+    runtime.install_disposition_store(repository.clone()).await;
+    tokio::time::timeout(Duration::from_secs(5), runtime.await_complete_or_terminal())
+        .await
+        .unwrap();
+
+    repository
+        .record_disposition_intent(
+            mission_id,
+            root.to_str().unwrap(),
+            "main",
+            crate::DispositionAction::Merge,
+            "2026-07-22T12:00:00Z",
+        )
+        .await
+        .unwrap();
+    runtime.workspace.final_merge("main").await.unwrap();
+    assert!(
+        repository
+            .mission_outcome(mission_id)
+            .await
+            .unwrap()
+            .is_none(),
+        "precondition: simulate the crash window before the merged outcome is persisted"
+    );
+
+    runtime.abort().await.unwrap();
+
+    assert_eq!(runtime.state(), MissionState::Merged);
+    assert_eq!(
+        repository
+            .mission_outcome(mission_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .state,
+        crate::MissionOutcomeState::Merged,
+        "durable Git merge proof must win over a later abort request"
+    );
+    assert!(repository
+        .list_disposition_intents()
+        .await
+        .unwrap()
+        .is_empty());
+    let events = runtime.event_bus.snapshot_kinds();
+    assert!(events.iter().any(|kind| matches!(
+        kind,
+        MissionEventKind::MergeResolved {
+            resolution: MergeResolution::Merged
+        }
+    )));
+    assert!(!events
+        .iter()
+        .any(|kind| matches!(kind, MissionEventKind::Aborted { .. })));
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -1174,6 +1394,83 @@ async fn tier2a_discard_fires_scrub_barrier() {
     .unwrap();
     assert_eq!(accept_count, 0);
     assert_eq!(scrub_count, 1);
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn terminal_resolution_retries_a_transient_memory_barrier_failure() {
+    use crate::memory::{NewNote, NoteKind, Scope, ScopeKind, StandardNoteKind};
+
+    let (_repo_dir, repo_root) = make_sandbox_repo();
+    let (kernel, _memory_dir) = fresh_kernel_for_runtime().await;
+    let mission_id = format!("tier2a-retry-{}", uuid::Uuid::now_v7().simple());
+    let runtime = MissionRuntime::start_with_memory(
+        MissionSpec {
+            worker_count: Some(1),
+            ..ok_spec()
+        },
+        MissionWorkspace::new(repo_root, mission_id.clone()).unwrap(),
+        MockTimingConfig::fast(),
+        Some(kernel.clone()),
+        None,
+    )
+    .await
+    .unwrap();
+    tokio::time::timeout(Duration::from_secs(5), runtime.await_complete_or_terminal())
+        .await
+        .unwrap();
+
+    let note_id = kernel
+        .store
+        ._test_seed_owned_note(NewNote {
+            kind: NoteKind::Standard(StandardNoteKind::Fact),
+            scope: Scope {
+                kind: ScopeKind::Repo,
+                value: None,
+            },
+            body: "retryable terminal barrier fact".into(),
+        })
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO memory_bundles \
+         (bundle_id, mission_id, worker_id, turn, vendor, hash, page_table_json, \
+          trace_json, rendered_path, composed_event_id) \
+         VALUES (?, ?, 'retry-worker', 0, 'claude', 'h', ?, '{}', '/dev/null', 'retry-event')",
+    )
+    .bind(format!("retry-bundle-{note_id}"))
+    .bind(&mission_id)
+    .bind(format!(
+        r#"[{{"slot":0,"note_id":"{note_id}","tokens":1}}]"#
+    ))
+    .execute(kernel.pool())
+    .await
+    .unwrap();
+
+    let body_path = kernel.store.root().join(format!("notes/{note_id}.md"));
+    let body = std::fs::read(&body_path).unwrap();
+    std::fs::remove_file(&body_path).unwrap();
+    runtime.resolve(ResolveAction::Merge).await.unwrap();
+    assert_eq!(runtime.state(), MissionState::Merged);
+
+    std::fs::write(&body_path, body).unwrap();
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        let (barriers,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM memory_events WHERE type = 'barrier' AND mission_id = ?",
+        )
+        .bind(&mission_id)
+        .fetch_one(kernel.pool())
+        .await
+        .unwrap();
+        if barriers == 1 {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "terminal mission never retried its transient memory barrier failure"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
 }
 
 /// Fail-soft contract: a mission without an installed kernel

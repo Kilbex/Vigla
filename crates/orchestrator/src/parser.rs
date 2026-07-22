@@ -93,6 +93,117 @@ where
     Ok(LineRead::Line { truncated })
 }
 
+/// Cancel-safe line reader for use as a `tokio::select!` branch.
+///
+/// [`read_line_capped`] wraps `read_until`, which is **not** cancellation
+/// safe: if its future is dropped because another `select!` branch completed
+/// first, the bytes it already consumed from the `BufReader` are lost and
+/// the next read resumes mid-line — silently corrupting or dropping that
+/// line. This reader instead drives `fill_buf` + `consume`, appending every
+/// consumed byte into the caller-owned `partial` buffer *before* the next
+/// `.await`. Its only await point is `fill_buf` (which is cancellation-safe:
+/// a dropped `fill_buf` consumes nothing), so a dropped future loses
+/// nothing — the next call simply resumes from `partial`.
+///
+/// `partial` accumulates the in-progress line across calls and across
+/// cancellations, and MUST be owned by the caller for the lifetime of the
+/// stream; it is cleared once a line is returned into `out`. The truncation
+/// contract matches [`read_line_capped`] exactly: a line whose content is
+/// `> max` bytes is capped to `max` (with the rest of the physical line
+/// drained) and flagged `truncated: true`; a line whose content is exactly
+/// `max` bytes is complete and NOT truncated.
+pub(crate) async fn read_line_resumable<R>(
+    reader: &mut R,
+    partial: &mut Vec<u8>,
+    out: &mut String,
+    max: usize,
+) -> std::io::Result<LineRead>
+where
+    R: AsyncBufRead + Unpin,
+{
+    loop {
+        let available = reader.fill_buf().await?;
+        if available.is_empty() {
+            // EOF. A buffered partial line (no trailing newline) is returned
+            // as a final line; an empty buffer is a clean EOF.
+            if partial.is_empty() {
+                return Ok(LineRead::Eof);
+            }
+            let truncated = partial.len() > max;
+            if truncated {
+                partial.truncate(max);
+            }
+            *out = String::from_utf8_lossy(partial).into_owned();
+            partial.clear();
+            return Ok(LineRead::Line { truncated });
+        }
+
+        // Take bytes up to a newline, but never let `partial` grow past
+        // `max + 1` — one byte past the cap is enough to distinguish an
+        // overlong line (no newline within max+1 bytes) from an exactly-max
+        // line, matching `read_line_capped`'s `take(max + 1)`.
+        let budget = (max + 1).saturating_sub(partial.len());
+        let scan = &available[..available.len().min(budget)];
+        let newline_at = scan.iter().position(|&b| b == b'\n');
+        let take = match newline_at {
+            Some(i) => i + 1,
+            None => scan.len(),
+        };
+        partial.extend_from_slice(&available[..take]);
+        // End the borrow of `available` before consuming (needs &mut reader).
+        std::pin::Pin::new(&mut *reader).consume(take);
+
+        if newline_at.is_none() && partial.len() <= max {
+            // Line not finished and still within the cap — read more.
+            continue;
+        }
+
+        // The line ended (newline seen) or hit the cap. Mirror
+        // `read_line_capped`: a buffer longer than `max` that does NOT end in
+        // a newline is a genuinely overlong line whose tail must be drained.
+        let overflowed = partial.len() > max && partial.last() != Some(&b'\n');
+        if overflowed {
+            // Leave `partial` intact (at max+1) until the drain fully
+            // completes, so a cancellation mid-drain re-enters here and
+            // resumes the drain instead of corrupting the next line.
+            drain_physical_line(reader).await?;
+            partial.truncate(max);
+            *out = String::from_utf8_lossy(partial).into_owned();
+            partial.clear();
+            return Ok(LineRead::Line { truncated: true });
+        }
+        *out = String::from_utf8_lossy(partial).into_owned();
+        partial.clear();
+        return Ok(LineRead::Line { truncated: false });
+    }
+}
+
+/// Consume the rest of the current physical line (up to and including the
+/// next `\n`, or EOF) WITHOUT buffering it — used to resync after an
+/// overlong line. Cancel-safe: the only await is `fill_buf` and every
+/// `consume` is synchronous, so a dropped future just resumes the drain.
+async fn drain_physical_line<R>(reader: &mut R) -> std::io::Result<()>
+where
+    R: AsyncBufRead + Unpin,
+{
+    loop {
+        let available = reader.fill_buf().await?;
+        if available.is_empty() {
+            return Ok(());
+        }
+        match available.iter().position(|&b| b == b'\n') {
+            Some(i) => {
+                std::pin::Pin::new(&mut *reader).consume(i + 1);
+                return Ok(());
+            }
+            None => {
+                let n = available.len();
+                std::pin::Pin::new(&mut *reader).consume(n);
+            }
+        }
+    }
+}
+
 /// Sink receiving canonical events as the orchestrator parses them
 /// from a worker's stdout. Implementors typically forward to the
 /// frontend via Tauri (`AppHandle::emit`).
@@ -486,6 +597,105 @@ mod tests {
 
         let r3 = read_line_capped(&mut reader, &mut out, 100).await.unwrap();
         assert_eq!(r3, LineRead::Eof);
+    }
+
+    #[tokio::test]
+    async fn resumable_matches_capped_semantics() {
+        // read_line_resumable must reproduce read_line_capped's contract:
+        // normal lines, a partial final line, overlong truncation with
+        // resync, and the exact-cap edge (content == max is complete).
+        let mut data = Vec::new();
+        data.extend_from_slice(b"hello\n");
+        data.resize(data.len() + 2000, b'x'); // overlong line (cap 100)
+        data.push(b'\n');
+        data.resize(data.len() + 100, b'y'); // content exactly at the cap
+        data.push(b'\n');
+        data.extend_from_slice(b"tail-no-newline");
+        let mut reader = BufReader::new(Cursor::new(data));
+        let mut partial = Vec::new();
+        let mut out = String::new();
+
+        let r = read_line_resumable(&mut reader, &mut partial, &mut out, 100)
+            .await
+            .unwrap();
+        assert_eq!(r, LineRead::Line { truncated: false });
+        assert_eq!(out, "hello\n");
+
+        let r = read_line_resumable(&mut reader, &mut partial, &mut out, 100)
+            .await
+            .unwrap();
+        assert_eq!(r, LineRead::Line { truncated: true });
+        assert_eq!(out.len(), 100);
+
+        let r = read_line_resumable(&mut reader, &mut partial, &mut out, 100)
+            .await
+            .unwrap();
+        assert_eq!(r, LineRead::Line { truncated: false });
+        assert_eq!(out.len(), 101); // 100 content + trailing '\n'
+        assert!(out.ends_with('\n'));
+
+        let r = read_line_resumable(&mut reader, &mut partial, &mut out, 100)
+            .await
+            .unwrap();
+        assert_eq!(r, LineRead::Line { truncated: false });
+        assert_eq!(out, "tail-no-newline");
+
+        let r = read_line_resumable(&mut reader, &mut partial, &mut out, 100)
+            .await
+            .unwrap();
+        assert_eq!(r, LineRead::Eof);
+        assert!(partial.is_empty());
+    }
+
+    #[tokio::test]
+    async fn resumable_is_cancel_safe_under_select() {
+        use tokio::io::AsyncWriteExt;
+        // A small duplex buffer + small write chunks force each line to span
+        // multiple reads. The select! below repeatedly races the read against
+        // an always-ready branch, so the read future is frequently dropped
+        // mid-line. A non-cancel-safe reader (read_until) would corrupt or
+        // drop those lines; read_line_resumable must reconstruct every line
+        // byte-for-byte because its consumed bytes live in `partial`.
+        let (mut w, r) = tokio::io::duplex(64);
+        let mut reader = BufReader::new(r);
+        let mut partial: Vec<u8> = Vec::new();
+        let mut line = String::new();
+
+        let writer = tokio::spawn(async move {
+            for i in 0..100u32 {
+                let payload = format!("line-{i:04}-{}\n", "z".repeat(60));
+                for chunk in payload.as_bytes().chunks(5) {
+                    w.write_all(chunk).await.unwrap();
+                    w.flush().await.unwrap();
+                    tokio::task::yield_now().await;
+                }
+            }
+            // Dropping `w` here closes the pipe, yielding EOF to the reader.
+        });
+
+        let mut got: Vec<String> = Vec::new();
+        loop {
+            tokio::select! {
+                // An always-ready competitor that forces the read future to
+                // be dropped whenever it has not yet completed a line.
+                _ = tokio::task::yield_now() => {}
+                res = read_line_resumable(&mut reader, &mut partial, &mut line, MAX_LINE_BYTES) => {
+                    match res.unwrap() {
+                        LineRead::Line { truncated } => {
+                            assert!(!truncated, "no line should be truncated");
+                            got.push(line.trim_end_matches(['\r', '\n']).to_string());
+                        }
+                        LineRead::Eof => break,
+                    }
+                }
+            }
+        }
+        writer.await.unwrap();
+
+        assert_eq!(got.len(), 100, "every line must survive the select! races");
+        for (i, g) in got.iter().enumerate() {
+            assert_eq!(g, &format!("line-{i:04}-{}", "z".repeat(60)));
+        }
     }
 
     // Shared test scaffolding for Tier-2D adapter tests.

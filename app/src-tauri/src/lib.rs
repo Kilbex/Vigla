@@ -1403,19 +1403,47 @@ fn specta_builder() -> Builder<tauri::Wry> {
         .constant("SCHEMA_VERSION", event_schema::SCHEMA_VERSION)
 }
 
+fn resolve_tracing_log_dir(
+    override_dir: Option<&std::ffi::OsStr>,
+    home_dir: Option<&std::ffi::OsStr>,
+    temp_dir: &Path,
+) -> PathBuf {
+    override_dir
+        .filter(|path| !path.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| {
+            home_dir
+                .map(PathBuf::from)
+                .map(|h| h.join("Library/Logs/Vigla"))
+        })
+        .unwrap_or_else(|| temp_dir.join("Vigla"))
+}
+
+fn prepare_tracing_log_dir(log_dir: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(log_dir)?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(log_dir, std::fs::Permissions::from_mode(0o700))?;
+    }
+
+    Ok(())
+}
+
 /// R1 — install a `tracing` subscriber so every diagnostic survives
-/// the `.app` bundle launch (where stderr is /dev/null) and lands
-/// in `~/Library/Logs/Vigla/vigla.log.YYYY-MM-DD`. The
-/// returned `WorkerGuard` must live for the process lifetime; the
-/// appender stops as soon as it drops.
+/// the `.app` bundle launch (where stderr is /dev/null). Logs default to
+/// `~/Library/Logs/Vigla/vigla.log.YYYY-MM-DD`; isolated harnesses can set
+/// `VIGLA_LOG_DIR`. The returned `WorkerGuard` must live for the process
+/// lifetime; the appender stops as soon as it drops.
 fn init_tracing_subscriber() -> Option<tracing_appender::non_blocking::WorkerGuard> {
     use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
-    let log_dir = std::env::var_os("HOME")
-        .map(std::path::PathBuf::from)
-        .map(|h| h.join("Library/Logs/Vigla"))
-        .unwrap_or_else(|| std::env::temp_dir().join("Vigla"));
-    let dir_ok = std::fs::create_dir_all(&log_dir).is_ok();
+    let override_dir = std::env::var_os("VIGLA_LOG_DIR");
+    let home_dir = std::env::var_os("HOME");
+    let temp_dir = std::env::temp_dir();
+    let log_dir = resolve_tracing_log_dir(override_dir.as_deref(), home_dir.as_deref(), &temp_dir);
+    let dir_ok = prepare_tracing_log_dir(&log_dir).is_ok();
 
     let default_filter = "info,orchestrator=debug,vigla_host_lib=debug";
 
@@ -1641,6 +1669,44 @@ async fn initialize_runtime(handle: tauri::AppHandle) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tracing_log_dir_prefers_a_nonempty_override_verbatim() {
+        let selected = resolve_tracing_log_dir(
+            Some(std::ffi::OsStr::new("/private/vigla quota logs")),
+            Some(std::ffi::OsStr::new("/Users/example")),
+            Path::new("/tmp"),
+        );
+
+        assert_eq!(selected, PathBuf::from("/private/vigla quota logs"));
+    }
+
+    #[test]
+    fn tracing_log_dir_ignores_an_empty_override() {
+        let selected = resolve_tracing_log_dir(
+            Some(std::ffi::OsStr::new("")),
+            Some(std::ffi::OsStr::new("/Users/example")),
+            Path::new("/tmp"),
+        );
+
+        assert_eq!(selected, PathBuf::from("/Users/example/Library/Logs/Vigla"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn tracing_log_dir_is_prepared_with_owner_only_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = tempfile::tempdir().unwrap();
+        let log_dir = temp.path().join("logs");
+        std::fs::create_dir(&log_dir).unwrap();
+        std::fs::set_permissions(&log_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        prepare_tracing_log_dir(&log_dir).unwrap();
+
+        let mode = std::fs::metadata(&log_dir).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o700);
+    }
 
     #[test]
     fn tauri_config_enforces_a_production_content_security_policy() {

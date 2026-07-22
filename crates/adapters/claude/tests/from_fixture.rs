@@ -1,4 +1,4 @@
-//! Step 10 — feed real Claude Code stream-json fixtures through
+//! Step 10 — feed deterministic synthetic Claude Code stream-json fixtures through
 //! [`ClaudeAdapter`] and assert the resulting canonical-event stream
 //! matches the `event-schema` contract.
 

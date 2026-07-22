@@ -661,7 +661,13 @@ envelope_fit?: EnvelopeFit | null } } |
  * free-form text from the FE reject form. `generation` matches
  * the rejected `PlanProposed`.
  */
-{ type: "plan.rejected"; payload: { generation: number; reason?: string | null } } | { type: "worker.spawned"; payload: { worker_id: string; task_index: number; task_title: string } } | { type: "worker.progress"; payload: { worker_id: string; note: string } } | { type: "worker.result_submitted"; payload: { worker_id: string; files: string[]; summary: string } } | { type: "supervisor.review_started"; payload: { worker_id: string } } | { type: "supervisor.integrated"; payload: { worker_id: string; integration_sha: string; snapshot_tag: string } } | { type: "supervisor.test_result"; payload: { passed: boolean; summary: string } } | { type: "supervisor.audit_completed"; payload: { 
+{ type: "plan.rejected"; payload: { generation: number; reason?: string | null } } | { type: "worker.spawned"; payload: { worker_id: string; task_index: number; task_title: string; 
+/**
+ * Authoritative identity for newly emitted events. Optional so
+ * recordings created before mission workers carried identity remain
+ * replayable.
+ */
+vendor?: Vendor | null; model?: string | null } } | { type: "worker.progress"; payload: { worker_id: string; note: string } } | { type: "worker.result_submitted"; payload: { worker_id: string; files: string[]; summary: string } } | { type: "supervisor.review_started"; payload: { worker_id: string } } | { type: "supervisor.integrated"; payload: { worker_id: string; integration_sha: string; snapshot_tag: string } } | { type: "supervisor.test_result"; payload: { passed: boolean; summary: string } } | { type: "supervisor.audit_completed"; payload: { 
 /**
  * Tier as a string ("smoke" | "standard" | "deep") so the
  * schema doesn't depend on the audit module's AuditTier enum
@@ -896,7 +902,13 @@ envelope_fit?: EnvelopeFit | null } } |
  * free-form text from the FE reject form. `generation` matches
  * the rejected `PlanProposed`.
  */
-{ type: "plan.rejected"; payload: { generation: number; reason?: string | null } } | { type: "worker.spawned"; payload: { worker_id: string; task_index: number; task_title: string } } | { type: "worker.progress"; payload: { worker_id: string; note: string } } | { type: "worker.result_submitted"; payload: { worker_id: string; files: string[]; summary: string } } | { type: "supervisor.review_started"; payload: { worker_id: string } } | { type: "supervisor.integrated"; payload: { worker_id: string; integration_sha: string; snapshot_tag: string } } | { type: "supervisor.test_result"; payload: { passed: boolean; summary: string } } | { type: "supervisor.audit_completed"; payload: { 
+{ type: "plan.rejected"; payload: { generation: number; reason?: string | null } } | { type: "worker.spawned"; payload: { worker_id: string; task_index: number; task_title: string; 
+/**
+ * Authoritative identity for newly emitted events. Optional so
+ * recordings created before mission workers carried identity remain
+ * replayable.
+ */
+vendor?: Vendor | null; model?: string | null } } | { type: "worker.progress"; payload: { worker_id: string; note: string } } | { type: "worker.result_submitted"; payload: { worker_id: string; files: string[]; summary: string } } | { type: "supervisor.review_started"; payload: { worker_id: string } } | { type: "supervisor.integrated"; payload: { worker_id: string; integration_sha: string; snapshot_tag: string } } | { type: "supervisor.test_result"; payload: { passed: boolean; summary: string } } | { type: "supervisor.audit_completed"; payload: { 
 /**
  * Tier as a string ("smoke" | "standard" | "deep") so the
  * schema doesn't depend on the audit module's AuditTier enum

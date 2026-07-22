@@ -19,7 +19,7 @@ function loadRecording(id: DemoRecordingId): void {
   store = useOpsStore.getState();
   store.beginReplay(recording.session.id);
   store = useOpsStore.getState();
-  store.appendReplayPage(recording.events);
+  store.appendReplayPage(recording.session.id, recording.events);
   store = useOpsStore.getState();
   store.finishReplay();
   store.setReplayPosition(0);

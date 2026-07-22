@@ -13,6 +13,21 @@ async fn run_git(dir: &std::path::Path, args: &[&str]) -> String {
         .output()
         .await
         .unwrap();
+    assert!(
+        out.status.success(),
+        "git {args:?} failed: {}",
+        String::from_utf8_lossy(&out.stderr).trim()
+    );
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+async fn run_git_allow_failure(dir: &std::path::Path, args: &[&str]) -> String {
+    let out = tokio::process::Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .await
+        .unwrap();
     String::from_utf8_lossy(&out.stdout).trim().to_string()
 }
 
@@ -96,7 +111,7 @@ async fn final_merge_refuses_a_noop_without_creating_rollback_anchors() {
     assert!(error.contains("no mission commits"), "got: {error}");
     assert_eq!(run_git(w.repo_root(), &["rev-parse", "main"]).await, before);
     assert!(
-        run_git(
+        run_git_allow_failure(
             w.repo_root(),
             &[
                 "rev-parse",
@@ -109,7 +124,7 @@ async fn final_merge_refuses_a_noop_without_creating_rollback_anchors() {
         "a refused no-op merge must not create a before anchor"
     );
     assert!(
-        run_git(
+        run_git_allow_failure(
             w.repo_root(),
             &[
                 "rev-parse",
@@ -136,7 +151,7 @@ async fn final_merge_refuses_a_noop_on_a_non_checked_out_target() {
         run_git(w.repo_root(), &["rev-parse", "release"]).await,
         before
     );
-    assert!(run_git(
+    assert!(run_git_allow_failure(
         w.repo_root(),
         &[
             "rev-parse",
@@ -146,7 +161,7 @@ async fn final_merge_refuses_a_noop_on_a_non_checked_out_target() {
     )
     .await
     .is_empty());
-    assert!(run_git(
+    assert!(run_git_allow_failure(
         w.repo_root(),
         &[
             "rev-parse",
@@ -156,6 +171,273 @@ async fn final_merge_refuses_a_noop_on_a_non_checked_out_target() {
     )
     .await
     .is_empty());
+}
+
+#[tokio::test]
+async fn final_merge_recovery_treats_a_before_only_pre_merge_state_as_unapplied() {
+    let (w, _td) = bootstrap_with_diverged_worker().await;
+    assert!(matches!(
+        w.integrate_worker("mock-1", 0, "feat: add worker.txt")
+            .await
+            .unwrap(),
+        MergeOutcome::Success(_)
+    ));
+    let before = run_git(w.repo_root(), &["rev-parse", "main"]).await;
+    let _ = run_git(
+        w.repo_root(),
+        &["tag", &w.final_before_tag("main"), &before],
+    )
+    .await;
+    assert_eq!(
+        run_git(w.repo_root(), &["rev-parse", &w.final_before_tag("main")]).await,
+        before,
+        "precondition: before anchor"
+    );
+
+    assert!(
+        !w.final_merge_is_applied("main").await.unwrap(),
+        "a crash after the before anchor but before git merge is not an applied merge"
+    );
+
+    w.final_merge("main")
+        .await
+        .expect("the before-only state must remain retryable");
+    assert!(w.final_merge_is_applied("main").await.unwrap());
+}
+
+#[tokio::test]
+async fn aborted_cleanup_removes_an_unmatched_before_anchor() {
+    let (w, _td) = bootstrap_with_diverged_worker().await;
+    let before = run_git(w.repo_root(), &["rev-parse", "main"]).await;
+    let before_tag = w.final_before_tag("main");
+    let _ = run_git(w.repo_root(), &["tag", &before_tag, &before]).await;
+    assert_eq!(
+        run_git(w.repo_root(), &["rev-parse", &before_tag]).await,
+        before,
+        "precondition: unmatched before anchor"
+    );
+
+    w.discard().await.unwrap();
+
+    assert!(
+        run_git_allow_failure(
+            w.repo_root(),
+            &["rev-parse", "--verify", &format!("refs/tags/{before_tag}")],
+        )
+        .await
+        .is_empty(),
+        "aborted cleanup must not retain an incomplete rollback proof forever"
+    );
+}
+
+#[tokio::test]
+async fn final_merge_retries_a_before_only_state_after_target_is_checked_out_elsewhere() {
+    let (w, _td) = bootstrap_with_diverged_worker().await;
+    assert!(matches!(
+        w.integrate_worker("mock-1", 0, "feat: add worker.txt")
+            .await
+            .unwrap(),
+        MergeOutcome::Success(_)
+    ));
+    let before = run_git(w.repo_root(), &["rev-parse", "main"]).await;
+    let _ = run_git(
+        w.repo_root(),
+        &["tag", &w.final_before_tag("main"), &before],
+    )
+    .await;
+    assert_eq!(
+        run_git(w.repo_root(), &["rev-parse", &w.final_before_tag("main")]).await,
+        before,
+        "precondition: before anchor"
+    );
+    let _ = run_git(w.repo_root(), &["checkout", "-q", "-b", "elsewhere"]).await;
+    assert_eq!(
+        run_git(w.repo_root(), &["symbolic-ref", "--short", "HEAD"]).await,
+        "elsewhere",
+        "precondition: target branch is no longer checked out"
+    );
+
+    assert!(!w.final_merge_is_applied("main").await.unwrap());
+    w.final_merge("main")
+        .await
+        .expect("a matching before anchor must be reusable by detached final merge");
+    assert!(w.final_merge_is_applied("main").await.unwrap());
+}
+
+#[tokio::test]
+async fn final_merge_recovery_synthesizes_missing_merged_proof_after_git_succeeds() {
+    let (w, _td) = bootstrap_with_diverged_worker().await;
+    assert!(matches!(
+        w.integrate_worker("mock-1", 0, "feat: add worker.txt")
+            .await
+            .unwrap(),
+        MergeOutcome::Success(_)
+    ));
+    let before = run_git(w.repo_root(), &["rev-parse", "main"]).await;
+    let _ = run_git(
+        w.repo_root(),
+        &["tag", &w.final_before_tag("main"), &before],
+    )
+    .await;
+    let _ = run_git(
+        w.repo_root(),
+        &[
+            "merge",
+            "--no-ff",
+            &w.supervisor_branch(),
+            "-m",
+            "merge Vigla mission revert-test",
+        ],
+    )
+    .await;
+    let merged = run_git(w.repo_root(), &["rev-parse", "main"]).await;
+    assert!(
+        run_git_allow_failure(
+            w.repo_root(),
+            &[
+                "rev-parse",
+                "--verify",
+                &format!("refs/tags/{}", w.final_merged_tag("main")),
+            ],
+        )
+        .await
+        .is_empty(),
+        "precondition: simulate a crash before the merged anchor is written"
+    );
+
+    assert!(
+        w.final_merge_is_applied("main").await.unwrap(),
+        "the exact mission merge topology is durable proof even before its tag is written"
+    );
+    assert_eq!(
+        run_git(w.repo_root(), &["rev-parse", &w.final_merged_tag("main")],).await,
+        merged,
+        "recovery must synthesize the missing durable merged anchor"
+    );
+}
+
+#[tokio::test]
+async fn final_merge_recovery_selects_the_immediate_first_parent_from_longer_history() {
+    let (w, _td) = bootstrap_with_diverged_worker().await;
+    assert!(matches!(
+        w.integrate_worker("mock-1", 0, "feat: add worker.txt")
+            .await
+            .unwrap(),
+        MergeOutcome::Success(_)
+    ));
+    let before = run_git(w.repo_root(), &["rev-parse", "main"]).await;
+    let before_tag = w.final_before_tag("main");
+    let _ = run_git(w.repo_root(), &["tag", &before_tag, &before]).await;
+    let _ = run_git(
+        w.repo_root(),
+        &[
+            "merge",
+            "--no-ff",
+            &w.supervisor_branch(),
+            "-m",
+            "merge Vigla mission revert-test",
+        ],
+    )
+    .await;
+    let mission_merge = run_git(w.repo_root(), &["rev-parse", "main"]).await;
+    for index in 0..32 {
+        let message = format!("later target work {index}");
+        let _ = run_git(
+            w.repo_root(),
+            &["commit", "--allow-empty", "-q", "-m", &message],
+        )
+        .await;
+    }
+
+    assert!(w.final_merge_is_applied("main").await.unwrap());
+    assert_eq!(
+        run_git(w.repo_root(), &["rev-parse", &w.final_merged_tag("main")]).await,
+        mission_merge,
+        "recovery must anchor the immediate child of before, not buffer or select later history"
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn final_merge_recovery_accepts_a_hook_augmented_merge_message() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let (w, _td) = bootstrap_with_diverged_worker().await;
+    assert!(matches!(
+        w.integrate_worker("mock-1", 0, "feat: add worker.txt")
+            .await
+            .unwrap(),
+        MergeOutcome::Success(_)
+    ));
+    let before = run_git(w.repo_root(), &["rev-parse", "main"]).await;
+    let _ = run_git(
+        w.repo_root(),
+        &["tag", &w.final_before_tag("main"), &before],
+    )
+    .await;
+    let hook = w.repo_root().join(".git/hooks/commit-msg");
+    std::fs::write(
+        &hook,
+        "#!/bin/sh\nprintf '\\nReviewed-by: repository hook\\n' >> \"$1\"\n",
+    )
+    .unwrap();
+    let mut permissions = std::fs::metadata(&hook).unwrap().permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&hook, permissions).unwrap();
+    let _ = run_git(
+        w.repo_root(),
+        &[
+            "merge",
+            "--no-ff",
+            &w.supervisor_branch(),
+            "-m",
+            "merge Vigla mission revert-test",
+        ],
+    )
+    .await;
+    let message = run_git(w.repo_root(), &["show", "-s", "--format=%B", "main"]).await;
+    assert!(message.contains("Reviewed-by: repository hook"));
+
+    assert!(
+        w.final_merge_is_applied("main").await.unwrap(),
+        "exact merge topology remains durable proof when a repository hook augments the message"
+    );
+}
+
+#[tokio::test]
+async fn final_merge_recovery_never_blesses_unrelated_target_progress() {
+    let (w, _td) = bootstrap_with_diverged_worker().await;
+    assert!(matches!(
+        w.integrate_worker("mock-1", 0, "feat: add worker.txt")
+            .await
+            .unwrap(),
+        MergeOutcome::Success(_)
+    ));
+    let before = run_git(w.repo_root(), &["rev-parse", "main"]).await;
+    let _ = run_git(
+        w.repo_root(),
+        &["tag", &w.final_before_tag("main"), &before],
+    )
+    .await;
+    tokio::fs::write(w.repo_root().join("unrelated.txt"), "unrelated\n")
+        .await
+        .unwrap();
+    let _ = run_git(w.repo_root(), &["add", "unrelated.txt"]).await;
+    let _ = run_git(w.repo_root(), &["commit", "-m", "unrelated target work"]).await;
+
+    assert!(
+        !w.final_merge_is_applied("main").await.unwrap(),
+        "an unrelated target commit must not be mistaken for the mission merge"
+    );
+    w.final_merge("main")
+        .await
+        .expect("stale before proof must be recoverable on retry");
+    assert_eq!(
+        run_git(w.repo_root(), &["show", "main:unrelated.txt"]).await,
+        "unrelated",
+        "retry must preserve target progress"
+    );
+    assert!(w.final_merge_is_applied("main").await.unwrap());
 }
 
 #[tokio::test]
@@ -391,7 +673,7 @@ async fn checked_out_final_merge_rolls_back_when_merged_anchor_cannot_be_written
         "got: {error}"
     );
     assert_eq!(run_git(w.repo_root(), &["rev-parse", "main"]).await, before);
-    assert!(run_git(
+    assert!(run_git_allow_failure(
         w.repo_root(),
         &[
             "rev-parse",
@@ -401,7 +683,7 @@ async fn checked_out_final_merge_rolls_back_when_merged_anchor_cannot_be_written
     )
     .await
     .is_empty());
-    assert!(run_git(
+    assert!(run_git_allow_failure(
         w.repo_root(),
         &[
             "rev-parse",
@@ -484,7 +766,7 @@ async fn integration_rolls_back_branches_when_snapshot_tag_fails() {
         run_git(w.repo_root(), &["rev-parse", &worker_branch]).await,
         worker_before
     );
-    assert!(run_git(
+    assert!(run_git_allow_failure(
         w.repo_root(),
         &[
             "rev-parse",

@@ -477,7 +477,7 @@ describe("store ref-aliasing immutability", () => {
     ];
     useOpsStore.getState().enterReplay([]);
     useOpsStore.getState().beginReplay("w1");
-    useOpsStore.getState().appendReplayPage(events);
+    useOpsStore.getState().appendReplayPage("w1", events);
     useOpsStore.getState().finishReplay();
     // finishReplay sets position to events.length (3).
 
@@ -515,7 +515,7 @@ describe("store ref-aliasing immutability", () => {
     ];
     useOpsStore.getState().enterReplay([]);
     useOpsStore.getState().beginReplay("w1");
-    useOpsStore.getState().appendReplayPage(events);
+    useOpsStore.getState().appendReplayPage("w1", events);
     useOpsStore.getState().finishReplay();
 
     useOpsStore.getState().setReplayPosition(1);
@@ -717,6 +717,35 @@ describe("Batch 3 — review selector + focus", () => {
     expect(selectGlobalCounters(useOpsStore.getState()).needsInput).toBe(1);
   });
 
+  it("keeps mission workers out of the generic review queue and counter", () => {
+    seedDone("standalone-done");
+    const store = useOpsStore.getState();
+    store.registerMissionWorker(
+      "wkr-claude-0001",
+      "claude",
+      "Mission task",
+      "mission-review",
+    );
+    store.updateMissionWorker("wkr-claude-0001", {
+      state: "done",
+      completionSummary: "Integrated by the supervisor",
+      timeline: {
+        ts: "2026-07-21T12:00:00.000Z",
+        label: "Integrated",
+        detail: null,
+      },
+    });
+
+    let state = useOpsStore.getState();
+    expect(selectWorkersNeedingReview(state)).toEqual(["standalone-done"]);
+    expect(selectGlobalCounters(state).needsInput).toBe(1);
+
+    store.setReviewStatus("wkr-claude-0001", "needs_review");
+    state = useOpsStore.getState();
+    expect(selectWorkersNeedingReview(state)).toEqual(["standalone-done"]);
+    expect(selectGlobalCounters(state).needsInput).toBe(1);
+  });
+
   it("setReviewFocus stores the focused worker id", () => {
     seedDone("w-f");
     useOpsStore.getState().setReviewFocus("w-f");
@@ -816,7 +845,7 @@ describe("replay auto-play (FE-1)", () => {
     const st = useOpsStore.getState();
     st.enterReplay([]);
     st.beginReplay("w1");
-    st.appendReplayPage([
+    st.appendReplayPage("w1", [
       evt("w1", 0, "2026-01-01T00:00:00.000Z", null, {
         type: "state_change",
         payload: { state: "idle" },

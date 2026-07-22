@@ -91,7 +91,13 @@ export function createWorkerSlice({ set, get }: StoreSliceContext): WorkerAction
         return registerNewWorker(prev, target, isReplay, id, vendor, taskTitle, model);
       }),
 
-    registerMissionWorker: (id, vendor, taskTitle, missionId) =>
+    registerMissionWorker: (
+      id,
+      vendor,
+      taskTitle,
+      missionId,
+      model,
+    ) =>
       set((prev) => {
         const isReplay = prev.replay.mode === "replay";
         const target: OpsState | null = isReplay ? prev.liveSnapshot : prev;
@@ -103,6 +109,7 @@ export function createWorkerSlice({ set, get }: StoreSliceContext): WorkerAction
             [id]: {
               ...existing,
               vendor,
+              model: model === undefined ? existing.model : model,
               currentTaskTitle: taskTitle,
               missionScoped: true,
               missionId,
@@ -119,7 +126,7 @@ export function createWorkerSlice({ set, get }: StoreSliceContext): WorkerAction
           id,
           vendor,
           taskTitle,
-          undefined,
+          model,
           { missionScoped: true, missionId },
         );
       }),
@@ -133,17 +140,13 @@ export function createWorkerSlice({ set, get }: StoreSliceContext): WorkerAction
         const nextState = update.state ?? existing.state;
         const wasTerminal = isTerminalWorkerState(existing.state);
         const nextTerminal = isTerminalWorkerState(nextState);
+        // Mission completion is resolved by the supervisor. It changes the
+        // active projection, but never creates generic human-review work.
         let activeCount = target.activeCount;
-        let needsInputCount = target.needsInputCount;
-        const needsReview =
-          target.reviewStatus[id] === undefined ||
-          target.reviewStatus[id] === "needs_review";
         if (!wasTerminal && nextTerminal) {
           activeCount -= 1;
-          if (needsReview) needsInputCount += 1;
         } else if (wasTerminal && !nextTerminal) {
           activeCount += 1;
-          if (needsReview) needsInputCount -= 1;
         }
         const worker = {
           ...existing,
@@ -162,7 +165,6 @@ export function createWorkerSlice({ set, get }: StoreSliceContext): WorkerAction
         const patch = {
           workers,
           activeCount,
-          needsInputCount,
           totalEvents: target.totalEvents + 1,
         };
         return isReplay
@@ -195,6 +197,18 @@ export function createWorkerSlice({ set, get }: StoreSliceContext): WorkerAction
     },
 
     ingestMissionEvent: (event) => {
+      if (event.type === "mission.created") {
+        set((prev) => {
+          const isReplay = prev.replay.mode === "replay";
+          const target: OpsState | null = isReplay ? prev.liveSnapshot : prev;
+          if (!target) return prev;
+          const projection = pruneMissionWorkerProjection(target);
+          if (!projection) return prev;
+          return isReplay
+            ? { liveSnapshot: { ...prev.liveSnapshot!, ...projection } }
+            : projection;
+        });
+      }
       ingestMissionWorkerProjection(event, get());
     },
 
@@ -223,7 +237,10 @@ function registerNewWorker(
   vendor: Vendor,
   taskTitle: string | null,
   model: string | null | undefined,
-  mission?: { missionScoped: boolean; missionId: string },
+  mission?: {
+    missionScoped: boolean;
+    missionId: string;
+  },
 ) {
   const spawnedAt = Date.now();
   const newSnapshot = fresh(id, spawnedAt, {
@@ -270,6 +287,78 @@ function isTerminalWorkerState(state: WorkerState): boolean {
   return state === "done" || state === "failed";
 }
 
+function omitWorkerIds<T>(
+  record: Record<string, T>,
+  workerIds: Set<string>,
+): Record<string, T> {
+  const next = { ...record };
+  for (const workerId of workerIds) delete next[workerId];
+  return next;
+}
+
+function pruneMissionWorkerProjection(
+  target: OpsState,
+): Partial<OpsState> | null {
+  const missionWorkerIds = new Set(
+    Object.values(target.workers)
+      .filter((worker) => worker.missionScoped)
+      .map((worker) => worker.id),
+  );
+  if (missionWorkerIds.size === 0) return null;
+
+  const workers = omitWorkerIds(target.workers, missionWorkerIds);
+  const workerOrder = target.workerOrder.filter(
+    (workerId) => !missionWorkerIds.has(workerId),
+  );
+  const reviewStatus = omitWorkerIds(target.reviewStatus, missionWorkerIds);
+  const squads = Object.fromEntries(
+    Object.entries(target.squads).map(([squadId, squad]) => {
+      const workerIds = squad.workerIds.filter(
+        (workerId) => !missionWorkerIds.has(workerId),
+      );
+      const leadWorkerId =
+        squad.leadWorkerId && missionWorkerIds.has(squad.leadWorkerId)
+          ? null
+          : squad.leadWorkerId;
+      return workerIds.length === squad.workerIds.length &&
+        leadWorkerId === squad.leadWorkerId
+        ? [squadId, squad]
+        : [squadId, { ...squad, workerIds, leadWorkerId }];
+    }),
+  );
+
+  return {
+    workers,
+    workerOrder,
+    workerEvents: omitWorkerIds(target.workerEvents, missionWorkerIds),
+    alerts: target.alerts.filter(
+      (alert) => !missionWorkerIds.has(alert.workerId),
+    ),
+    activeCount: Object.values(workers).filter(
+      (worker) => !isTerminalWorkerState(worker.state),
+    ).length,
+    needsInputCount: workerOrder.filter((workerId) => {
+      const worker = workers[workerId];
+      if (!worker || !isTerminalWorkerState(worker.state)) return false;
+      const status = reviewStatus[workerId];
+      return status === undefined || status === "needs_review";
+    }).length,
+    selectedWorkerId:
+      target.selectedWorkerId && missionWorkerIds.has(target.selectedWorkerId)
+        ? null
+        : target.selectedWorkerId,
+    lastSeqByWorker: omitWorkerIds(target.lastSeqByWorker, missionWorkerIds),
+    squads,
+    workerSquad: omitWorkerIds(target.workerSquad, missionWorkerIds),
+    reviewStatus,
+    reviewFocusedWorkerId:
+      target.reviewFocusedWorkerId &&
+      missionWorkerIds.has(target.reviewFocusedWorkerId)
+        ? null
+        : target.reviewFocusedWorkerId,
+  };
+}
+
 function vendorFromWorkerId(workerId: string): Vendor {
   const match = /^wkr-([a-z][a-z0-9_-]*?)-0*[0-9]+$/i.exec(workerId);
   const vendor = match?.[1]?.toLowerCase();
@@ -298,9 +387,10 @@ function ingestMissionWorkerProjection(event: MissionEvent, store: OpsStore): vo
       const id = event.payload.worker_id;
       store.registerMissionWorker(
         id,
-        vendorFromWorkerId(id),
+        event.payload.vendor ?? vendorFromWorkerId(id),
         event.payload.task_title,
         event.mission_id,
+        event.payload.model,
       );
       store.updateMissionWorker(id, {
         state: "executing",

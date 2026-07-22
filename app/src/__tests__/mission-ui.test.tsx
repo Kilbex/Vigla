@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { MissionEvent, MissionSpec } from "../bindings";
 import { formatTeam } from "../missions/MissionActiveView";
 import MissionOverlay from "../missions/MissionOverlay";
@@ -14,6 +14,7 @@ vi.mock("../bindings", async () => {
       startMission: vi.fn(),
       abortMission: vi.fn(),
       resolveMission: vi.fn(),
+      revertMission: vi.fn(),
       confirmPlan: vi.fn(),
       regeneratePlan: vi.fn(),
     },
@@ -98,6 +99,19 @@ function completed(): MissionEvent {
     ts: "2026-05-12T00:02:10.000Z",
     type: "mission.completed",
     payload: { summary: "2 tasks integrated", files_changed: 2 },
+  };
+}
+
+function reverted(restoredSha: string): MissionEvent {
+  return {
+    mission_id: MID,
+    seq: 11,
+    ts: "2026-05-12T00:02:20.000Z",
+    type: "mission.reverted",
+    payload: {
+      restored_sha: restoredSha,
+      pre_merge_tag: `vigla/revert/${MID}/before/main`,
+    },
   };
 }
 
@@ -279,6 +293,95 @@ describe("MissionOverlay", () => {
     expect(useMissionsStore.getState().terminalOverlayDismissed).toBe(true);
   });
 
+  it("renders a reverted terminal outcome with its restored SHA and no Revert action", () => {
+    const restoredSha = "abc1234def567890";
+    useMissionsStore.getState().ingest(created());
+    useMissionsStore.getState().ingest(completed());
+    useMissionsStore.getState().ingest({
+      mission_id: MID,
+      seq: 10,
+      ts: "2026-05-12T00:02:15.000Z",
+      type: "mission.merge_resolved",
+      payload: { resolution: { type: "merged" } },
+    });
+    useMissionsStore.getState().ingest(reverted(restoredSha));
+
+    render(<MissionOverlay />);
+
+    expect(screen.getByRole("heading", { name: "Reverted" })).toBeTruthy();
+    expect(screen.getByText(new RegExp(restoredSha))).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: /revert mission/i }),
+    ).toBeNull();
+  });
+
+  it("applies a successful revert command without waiting for a Tauri event", async () => {
+    const restoredSha = "def5678abc123456";
+    const outcome = {
+      restored_sha: restoredSha,
+      pre_merge_tag: `vigla/revert/${MID}/before/main`,
+    };
+    vi.mocked(commands.revertMission).mockResolvedValueOnce({
+      status: "ok",
+      data: outcome,
+    });
+    useMissionsStore.getState().ingest(created());
+    useMissionsStore.getState().ingest(completed());
+    useMissionsStore.getState().ingest({
+      mission_id: MID,
+      seq: 10,
+      ts: "2026-05-12T00:02:15.000Z",
+      type: "mission.merge_resolved",
+      payload: { resolution: { type: "merged" } },
+    });
+
+    render(<MissionOverlay />);
+    fireEvent.click(screen.getByRole("button", { name: /revert mission/i }));
+    fireEvent.click(screen.getByRole("button", { name: /confirm revert/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Reverted" })).toBeTruthy();
+    });
+    expect(commands.revertMission).toHaveBeenCalledWith(MID);
+    expect(useMissionsStore.getState().active?.lifecycle).toBe("reverted");
+    expect(useMissionsStore.getState().active?.restoredSha).toBe(restoredSha);
+    expect(screen.getByText(new RegExp(restoredSha))).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: /revert mission/i }),
+    ).toBeNull();
+
+    const revertedMission = useMissionsStore.getState().active;
+    act(() => {
+      useMissionsStore.getState().applyRevertOutcome(MID, outcome);
+    });
+    expect(useMissionsStore.getState().active).toBe(revertedMission);
+  });
+
+  it("accepts the eventual revert event after applying the command outcome", () => {
+    const restoredSha = "def5678abc123456";
+    useMissionsStore.getState().ingest(created());
+    useMissionsStore.getState().ingest(completed());
+    useMissionsStore.getState().ingest({
+      mission_id: MID,
+      seq: 10,
+      ts: "2026-05-12T00:02:15.000Z",
+      type: "mission.merge_resolved",
+      payload: { resolution: { type: "merged" } },
+    });
+    useMissionsStore.getState().applyRevertOutcome(MID, {
+      restored_sha: restoredSha,
+      pre_merge_tag: `vigla/revert/${MID}/before/main`,
+    });
+
+    useMissionsStore.getState().ingest(reverted(restoredSha));
+
+    expect(useMissionsStore.getState().active?.lifecycle).toBe("reverted");
+    expect(useMissionsStore.getState().active?.restoredSha).toBe(restoredSha);
+    expect(useMissionsStore.getState().active?.updatedAt).toBe(
+      "2026-05-12T00:02:20.000Z",
+    );
+  });
+
   it("Esc does NOT dismiss the active mission view (would lose work)", () => {
     useMissionsStore.getState().ingest(created());
     useMissionsStore.getState().ingest(decomposition());
@@ -378,7 +481,9 @@ describe("MissionReviewOutcome", () => {
     expect(useMissionsStore.getState().active?.lifecycle).toBe(
       "complete_pending_merge",
     );
-    expect(screen.getByRole("button", { name: /^merge$/i })).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /^merge$/i })).toBeTruthy();
+    });
   });
 
   it("does not surface a stale error when the host is already merged", async () => {
@@ -484,7 +589,7 @@ describe("MissionPlanPreview", () => {
     paused();
     render(<MissionOverlay />);
     fireEvent.click(screen.getByRole("button", { name: /^regenerate$/i }));
-    expect(screen.getByPlaceholderText(/split task a/i)).toBeTruthy();
+    expect(screen.getByPlaceholderText(/start with tests/i)).toBeTruthy();
     expect(
       screen.getByRole("button", { name: /regenerate without feedback/i }),
     ).toBeTruthy();
@@ -503,7 +608,7 @@ describe("MissionPlanPreview", () => {
     }) as HTMLButtonElement;
     expect(withBtn.disabled).toBe(true);
 
-    fireEvent.change(screen.getByPlaceholderText(/split task a/i), {
+    fireEvent.change(screen.getByPlaceholderText(/start with tests/i), {
       target: { value: "smaller tasks please" },
     });
     expect(withBtn.disabled).toBe(false);
@@ -517,7 +622,7 @@ describe("MissionPlanPreview", () => {
     paused();
     render(<MissionOverlay />);
     fireEvent.click(screen.getByRole("button", { name: /^regenerate$/i }));
-    fireEvent.change(screen.getByPlaceholderText(/split task a/i), {
+    fireEvent.change(screen.getByPlaceholderText(/start with tests/i), {
       target: { value: "  smaller tasks please  " },
     });
     fireEvent.click(

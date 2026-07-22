@@ -13,6 +13,11 @@
 
 import dagre from "@dagrejs/dagre";
 import type { EnvelopeFit, TechChoice } from "./types";
+import {
+  PLAN_CONTENT_LIMITS,
+  sanitizePlanDetail,
+  sanitizePlanLabel,
+} from "./plan-content";
 
 export interface PlanTask {
   index: number;
@@ -70,6 +75,7 @@ export interface MindMapNodeData extends Record<string, unknown> {
   layer?: string;
   choice?: string;
   is_new?: boolean;
+  truncation_note?: string;
 }
 
 export interface MindMapNode {
@@ -102,9 +108,11 @@ export interface MindMap {
 
 export interface PlanPayload {
   tasks: PlanTask[];
+  source_task_count?: number;
   generation: number;
   overview?: string | null;
   tech_stack?: TechChoice[] | null;
+  source_tech_stack_count?: number;
   envelope_fit?: EnvelopeFit | null;
 }
 
@@ -136,9 +144,50 @@ const MAP_PADDING = 40;
 export function buildMindMap(spec: PlanSpec, plan: PlanPayload): MindMap {
   const nodes: MindMapNode[] = [];
   const edges: MindMapEdge[] = [];
-  const taskByIndex = new Map(plan.tasks.map((task) => [task.index, task]));
+  const rawTasks = Array.isArray(plan.tasks) ? plan.tasks : [];
+  const {
+    tasks,
+    omittedTasks,
+    omittedDependencies,
+    omittedScopePaths,
+  } = prepareTasks(rawTasks);
+  const rawTechStack = Array.isArray(plan.tech_stack) ? plan.tech_stack : [];
+  const sourceTaskCount = boundedSourceCount(
+    plan.source_task_count,
+    rawTasks.length,
+  );
+  const sourceTechStackCount = boundedSourceCount(
+    plan.source_tech_stack_count,
+    rawTechStack.length,
+  );
+  const techStack = rawTechStack
+    .slice(0, PLAN_CONTENT_LIMITS.techItems)
+    .flatMap((item) => {
+      if (!item || typeof item !== "object") return [];
+      return [
+        {
+          layer: sanitizePlanLabel(item.layer) || "layer",
+          choice: sanitizePlanLabel(item.choice) || "choice",
+          rationale: sanitizePlanDetail(item.rationale),
+          is_new: item.is_new === true,
+        },
+      ];
+    });
+  const omittedTechItems = Math.max(
+    0,
+    sourceTechStackCount - techStack.length,
+  );
+  const truncationNote = summarizeTruncation(
+    omittedTasks + Math.max(0, sourceTaskCount - rawTasks.length),
+    omittedTechItems,
+    omittedDependencies,
+    omittedScopePaths,
+  );
+  const taskByIndex = new Map(tasks.map((task) => [task.index, task]));
 
   const envelope = summarizeEnvelope(plan.envelope_fit);
+  const title = sanitizePlanLabel(spec.title) || "Mission";
+  const objective = sanitizePlanDetail(spec.objective);
 
   // Root.
   nodes.push({
@@ -147,22 +196,23 @@ export function buildMindMap(spec: PlanSpec, plan: PlanPayload): MindMap {
     position: { x: 0, y: 0 },
     dimensions: MIND_MAP_NODE_DIMENSIONS.root,
     data: {
-      label: spec.title || "Mission",
+      label: title,
       subtitle: "Mission",
-      objective: spec.objective,
+      objective,
       branch: envelope.status === "exceeds" ? "risk" : "root",
-      tooltip: [spec.title, spec.objective, envelope.summary]
+      tooltip: [title, objective, envelope.summary, truncationNote]
         .filter(Boolean)
         .join("\n\n"),
       envelope_flag: envelope.status !== "within" && envelope.status !== "unknown",
       envelope_status: envelope.status,
       envelope_label: envelope.label,
       envelope_summary: envelope.summary,
+      truncation_note: truncationNote,
     },
   });
 
   // Tech-stack subtree.
-  if (plan.tech_stack && plan.tech_stack.length > 0) {
+  if (techStack.length > 0) {
     nodes.push({
       id: "tech-root",
       type: "tech-root",
@@ -170,19 +220,19 @@ export function buildMindMap(spec: PlanSpec, plan: PlanPayload): MindMap {
       dimensions: MIND_MAP_NODE_DIMENSIONS["tech-root"],
       data: {
         label: "Tech stack",
-        subtitle: `${plan.tech_stack.length} item${
-          plan.tech_stack.length === 1 ? "" : "s"
+        subtitle: `${techStack.length} item${
+          techStack.length === 1 ? "" : "s"
         }`,
         branch: "tech",
         tooltip: "Technology choices proposed for this mission.",
-        task_count: plan.tech_stack.length,
+        task_count: techStack.length,
       },
     });
     edges.push(hierarchyEdge("root->tech-root", "root", "tech-root", "tech"));
-    plan.tech_stack.forEach((t, idx) => {
+    techStack.forEach((t, idx) => {
       const id = `tech-${idx}`;
-      const layer = t.layer?.trim() || "layer";
-      const choice = t.choice?.trim() || "choice";
+      const layer = t.layer;
+      const choice = t.choice;
       nodes.push({
         id,
         type: "tech-leaf",
@@ -205,11 +255,11 @@ export function buildMindMap(spec: PlanSpec, plan: PlanPayload): MindMap {
   // Waves (Kahn's algorithm over depends_on).
   const indegree: Record<number, number> = {};
   const dependents: Record<number, number[]> = {};
-  for (const t of plan.tasks) {
+  for (const t of tasks) {
     indegree[t.index] = 0;
     dependents[t.index] = [];
   }
-  for (const t of plan.tasks) {
+  for (const t of tasks) {
     for (const dep of t.depends_on ?? []) {
       if (!taskByIndex.has(dep)) continue;
       indegree[t.index] = (indegree[t.index] ?? 0) + 1;
@@ -217,7 +267,7 @@ export function buildMindMap(spec: PlanSpec, plan: PlanPayload): MindMap {
     }
   }
   const waves: number[][] = [];
-  let frontier = plan.tasks
+  let frontier = tasks
     .filter((t) => (indegree[t.index] ?? 0) === 0)
     .map((t) => t.index);
   while (frontier.length > 0) {
@@ -232,7 +282,7 @@ export function buildMindMap(spec: PlanSpec, plan: PlanPayload): MindMap {
     frontier = next;
   }
   const scheduled = new Set(waves.flat());
-  const unscheduled = plan.tasks
+  const unscheduled = tasks
     .filter((t) => !scheduled.has(t.index))
     .map((t) => t.index)
     .sort((a, b) => a - b);
@@ -298,7 +348,7 @@ export function buildMindMap(spec: PlanSpec, plan: PlanPayload): MindMap {
 
   // Dependency edges between tasks (drawn on top of the wave
   // grouping so the FE can render them as light, secondary lines).
-  for (const t of plan.tasks) {
+  for (const t of tasks) {
     for (const dep of t.depends_on ?? []) {
       if (!taskByIndex.has(dep)) continue;
       edges.push({
@@ -315,6 +365,148 @@ export function buildMindMap(spec: PlanSpec, plan: PlanPayload): MindMap {
 
   const bounds = layoutInPlace(nodes, edges);
   return { nodes, edges, bounds };
+}
+
+function boundedSourceCount(value: unknown, minimum: number): number {
+  return Number.isSafeInteger(value) && Number(value) >= minimum
+    ? Number(value)
+    : minimum;
+}
+
+function prepareTasks(rawTasks: readonly PlanTask[]): {
+  tasks: PlanTask[];
+  omittedTasks: number;
+  omittedDependencies: number;
+  omittedScopePaths: number;
+} {
+  const staged: Array<{ task: PlanTask; rawDependencies: readonly number[] }> = [];
+  const seen = new Set<number>();
+  let omittedScopePaths = 0;
+
+  for (const raw of rawTasks.slice(0, PLAN_CONTENT_LIMITS.tasks)) {
+    if (
+      !raw ||
+      typeof raw !== "object" ||
+      !Number.isSafeInteger(raw.index) ||
+      raw.index < 0 ||
+      seen.has(raw.index)
+    ) {
+      continue;
+    }
+    seen.add(raw.index);
+    const rawCriteria =
+      raw.criteria &&
+      typeof raw.criteria === "object" &&
+      !Array.isArray(raw.criteria)
+        ? raw.criteria
+        : null;
+    const rawScopePaths = Array.isArray(raw.scope_paths)
+      ? raw.scope_paths
+      : [];
+    omittedScopePaths += Math.max(
+      0,
+      rawScopePaths.length - PLAN_CONTENT_LIMITS.scopePathsPerTask,
+    );
+    staged.push({
+      task: {
+        index: raw.index,
+        title:
+          sanitizePlanLabel(raw.title) || `Task ${staged.length + 1}`,
+        description: sanitizePlanDetail(raw.description),
+        role: sanitizePlanLabel(raw.role),
+        criteria: rawCriteria
+          ? {
+              min_audit_overall: Number.isFinite(
+                rawCriteria.min_audit_overall,
+              )
+                ? Math.min(
+                    1,
+                    Math.max(0, Number(rawCriteria.min_audit_overall)),
+                  )
+                : undefined,
+              require_tests_pass: rawCriteria.require_tests_pass === true,
+              forbid_new_security_flags:
+                rawCriteria.forbid_new_security_flags === true,
+              summary: sanitizePlanDetail(rawCriteria.summary),
+            }
+          : undefined,
+        criteria_summary: sanitizePlanDetail(raw.criteria_summary),
+        scope_paths: rawScopePaths
+          .slice(0, PLAN_CONTENT_LIMITS.scopePathsPerTask)
+          .map(sanitizePlanLabel)
+          .filter(Boolean),
+        depends_on: [],
+      },
+      rawDependencies: Array.isArray(raw.depends_on) ? raw.depends_on : [],
+    });
+  }
+
+  const visibleIndexes = new Set(staged.map(({ task }) => task.index));
+  let acceptedDependencies = 0;
+  let omittedDependencies = 0;
+  let remainingDependencyInputs = PLAN_CONTENT_LIMITS.dependencyInputs;
+  for (const entry of staged) {
+    const unique = new Set<number>();
+    const inspectedCount = Math.min(
+      entry.rawDependencies.length,
+      remainingDependencyInputs,
+    );
+    omittedDependencies += entry.rawDependencies.length - inspectedCount;
+    remainingDependencyInputs -= inspectedCount;
+    for (let index = 0; index < inspectedCount; index += 1) {
+      const dependency = entry.rawDependencies[index];
+      if (
+        !Number.isSafeInteger(dependency) ||
+        !visibleIndexes.has(dependency) ||
+        unique.has(dependency)
+      ) {
+        continue;
+      }
+      unique.add(dependency);
+      if (acceptedDependencies < PLAN_CONTENT_LIMITS.dependencyEdges) {
+        entry.task.depends_on?.push(dependency);
+        acceptedDependencies += 1;
+      } else {
+        omittedDependencies += 1;
+      }
+    }
+  }
+
+  return {
+    tasks: staged.map(({ task }) => task),
+    omittedTasks: Math.max(0, rawTasks.length - staged.length),
+    omittedDependencies,
+    omittedScopePaths,
+  };
+}
+
+function summarizeTruncation(
+  tasks: number,
+  stackItems: number,
+  dependencies: number,
+  scopePaths: number,
+): string | undefined {
+  const parts: string[] = [];
+  if (tasks > 0) parts.push(`${tasks} task${tasks === 1 ? "" : "s"}`);
+  if (stackItems > 0) {
+    parts.push(`${stackItems} stack item${stackItems === 1 ? "" : "s"}`);
+  }
+  if (dependencies > 0) {
+    parts.push(
+      `${dependencies} dependenc${dependencies === 1 ? "y" : "ies"}`,
+    );
+  }
+  if (scopePaths > 0) {
+    parts.push(`${scopePaths} scope path${scopePaths === 1 ? "" : "s"}`);
+  }
+  if (parts.length === 0) return undefined;
+  const summary =
+    parts.length === 1
+      ? parts[0]
+      : parts.length === 2
+        ? `${parts[0]} and ${parts[1]}`
+        : `${parts.slice(0, -1).join(", ")}, and ${parts[parts.length - 1]}`;
+  return `${summary} omitted for a responsive preview.`;
 }
 
 function hierarchyEdge(
@@ -487,7 +679,8 @@ function summarizeBounds(
   return entries
     .map(([key, bound]) => {
       const label = key.charAt(0).toUpperCase() + key.slice(1);
-      return bound.note ? `${label}: ${bound.note}` : label;
+      const note = sanitizePlanDetail(bound.note);
+      return note ? `${label}: ${note}` : label;
     })
     .join("\n");
 }

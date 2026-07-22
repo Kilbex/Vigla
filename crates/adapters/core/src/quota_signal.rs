@@ -48,19 +48,28 @@ pub fn is_quota_exhaustion_line(line: &str) -> bool {
     // `assigned request_id=429` would otherwise pause the worker for the
     // vendor's full fallback window. A genuine "429 too many requests" is
     // already caught by the EXPLICIT tier above.
+    //
+    // The context words are matched with the SAME word-boundary discipline
+    // as the `429` token itself. A loose `contains` here would defeat the
+    // whole tier: `"rate"` is a substring of generate/migrate/iterate/
+    // operate/separate and `"limit"` of delimiter/unlimited, so a benign
+    // `Migrated 429 rows` or `Generated 429 files` would pause the mission.
     if contains_word_token(&lower, "429")
         && [
             "http", "status", "rate", "quota", "retry", "too many", "limit",
         ]
         .iter()
-        .any(|w| lower.contains(w))
+        .any(|w| contains_word_token(&lower, w))
     {
         return true;
     }
 
     // A bare "usage limit" only counts when the line also says it was
     // hit — `current usage limit is 1M tokens` is informational, not an
-    // exhaustion event.
+    // exhaustion event. These are stems matched as loose substrings on
+    // purpose (exceed→exceeded/exceeds, exhaust→exhausted/exhaustion); the
+    // literal "usage limit" prefix already makes a false positive here far
+    // less reachable than the bare-`429` tier above.
     if lower.contains("usage limit")
         && ["exceed", "reached", "hit", "exhaust"]
             .iter()
@@ -165,6 +174,27 @@ mod tests {
         // pause the worker for the vendor's whole fallback window).
         assert!(!q("assigned request_id=429"));
         assert!(!q("completed request 429 of 500"));
+    }
+
+    #[test]
+    fn ignores_429_next_to_words_that_merely_contain_a_context_substring() {
+        // The 429 context words are boundary-matched, so a standalone `429`
+        // sitting next to a benign token that merely *contains* "rate" or
+        // "limit" as a substring must NOT be read as a quota wall.
+        assert!(!q("Migrated 429 rows"));
+        assert!(!q("Generated 429 files"));
+        assert!(!q("iterate over 429 records"));
+        assert!(!q("wrote 429 bytes to the delimiter table"));
+        assert!(!q("separated 429 entries"));
+    }
+
+    #[test]
+    fn still_matches_429_with_a_bounded_context_word() {
+        // Boundary matching must not regress genuine rate/limit context.
+        assert!(q("HTTP 429 rate limit"));
+        assert!(q("429 quota exhausted for the hour"));
+        assert!(q("got a 429, retry after 60s"));
+        assert!(q("rate-limited: 429"));
     }
 
     #[test]

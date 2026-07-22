@@ -1,6 +1,6 @@
 use crate::mission_runtime::CancelToken;
 use crate::mission_worker_dispatch::WorkerVendor;
-use crate::parser::{read_line_capped, LineRead, MAX_LINE_BYTES};
+use crate::parser::{read_line_resumable, LineRead, MAX_LINE_BYTES};
 use crate::vendor_profile::{profile_for_vendor, render_command_args, CommandRole, CommandVars};
 use std::collections::VecDeque;
 use std::path::Path;
@@ -319,6 +319,11 @@ pub(super) async fn collect_supervisor_turn_inner(
     let mut stderr_buf = BufReader::new(stderr);
     let mut stdout_line = String::new();
     let mut stderr_line = String::new();
+    // Persistent per-stream accumulators keep the select! reads cancel-safe:
+    // a read arm dropped mid-line (because another arm won) leaves its
+    // consumed bytes here for the next read to resume from.
+    let mut stdout_partial: Vec<u8> = Vec::new();
+    let mut stderr_partial: Vec<u8> = Vec::new();
     let mut stdout_eof = false;
     let mut stderr_eof = false;
     let mut stdout_logs = 0usize;
@@ -338,7 +343,7 @@ pub(super) async fn collect_supervisor_turn_inner(
         }
 
         tokio::select! {
-            line = read_line_capped(&mut stdout_buf, &mut stdout_line, MAX_LINE_BYTES),
+            line = read_line_resumable(&mut stdout_buf, &mut stdout_partial, &mut stdout_line, MAX_LINE_BYTES),
                 if !stdout_eof =>
             {
                 match line {
@@ -363,7 +368,7 @@ pub(super) async fn collect_supervisor_turn_inner(
                     Ok(LineRead::Eof) | Err(_) => stdout_eof = true,
                 }
             }
-            line = read_line_capped(&mut stderr_buf, &mut stderr_line, MAX_LINE_BYTES),
+            line = read_line_resumable(&mut stderr_buf, &mut stderr_partial, &mut stderr_line, MAX_LINE_BYTES),
                 if !stderr_eof =>
             {
                 match line {
@@ -393,6 +398,7 @@ pub(super) async fn collect_supervisor_turn_inner(
     if !stdout_eof {
         drain_supervisor_stdout(
             &mut stdout_buf,
+            &mut stdout_partial,
             &mut stdout_line,
             adapter,
             outputs,
@@ -401,7 +407,14 @@ pub(super) async fn collect_supervisor_turn_inner(
         .await;
     }
     if !stderr_eof {
-        drain_supervisor_stderr(&mut stderr_buf, &mut stderr_line, outputs, &mut stderr_logs).await;
+        drain_supervisor_stderr(
+            &mut stderr_buf,
+            &mut stderr_partial,
+            &mut stderr_line,
+            outputs,
+            &mut stderr_logs,
+        )
+        .await;
     }
     push_supervisor_stdout_outputs(outputs, adapter.finalize(), &mut stdout_logs);
     adapter.session_id().map(str::to_owned)
@@ -409,6 +422,7 @@ pub(super) async fn collect_supervisor_turn_inner(
 
 async fn drain_supervisor_stdout<R>(
     reader: &mut R,
+    partial: &mut Vec<u8>,
     line: &mut String,
     adapter: &mut SupervisorAdapter,
     outputs: &mut Vec<SupervisorOutput>,
@@ -419,7 +433,7 @@ async fn drain_supervisor_stdout<R>(
     loop {
         let read = tokio::time::timeout(
             SUPERVISOR_POST_EXIT_DRAIN_TIMEOUT,
-            read_line_capped(reader, line, MAX_LINE_BYTES),
+            read_line_resumable(reader, partial, line, MAX_LINE_BYTES),
         )
         .await;
         match read {
@@ -469,6 +483,7 @@ fn push_supervisor_stdout_outputs(
 
 async fn drain_supervisor_stderr<R>(
     reader: &mut R,
+    partial: &mut Vec<u8>,
     line: &mut String,
     outputs: &mut Vec<SupervisorOutput>,
     stderr_logs: &mut usize,
@@ -478,7 +493,7 @@ async fn drain_supervisor_stderr<R>(
     loop {
         let read = tokio::time::timeout(
             SUPERVISOR_POST_EXIT_DRAIN_TIMEOUT,
-            read_line_capped(reader, line, MAX_LINE_BYTES),
+            read_line_resumable(reader, partial, line, MAX_LINE_BYTES),
         )
         .await;
         match read {

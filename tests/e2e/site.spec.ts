@@ -24,6 +24,14 @@ test.describe("GitHub Pages launch surface", () => {
       "content",
       "https://kilbex.github.io/Vigla/media/social-preview.png",
     );
+    await expect(page.locator('meta[property="og:image:alt"]')).toHaveAttribute(
+      "content",
+      /supervise the merge, not every terminal/i,
+    );
+    await expect(page.locator('meta[name="twitter:image:alt"]')).toHaveAttribute(
+      "content",
+      /coding agents working in parallel/i,
+    );
     await expect(page.getByRole("heading", { level: 1 })).toContainText(
       "Supervise the merge",
     );

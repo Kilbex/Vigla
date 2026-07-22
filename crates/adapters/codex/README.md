@@ -8,5 +8,5 @@ not crash a mission.
 cargo test -p vigla-adapter-codex
 ```
 
-Use recorded, redacted fixtures for parser changes. The optional real-CLI gate
-is documented in the root README.
+Use deterministic synthetic fixtures for parser changes. The optional real-CLI
+gate is documented in the root README.

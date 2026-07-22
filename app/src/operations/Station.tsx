@@ -1,7 +1,12 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import type { Node } from "@xyflow/react";
 import { useEffect, useState } from "react";
-import { selectIsLead, selectSquadOf, useOpsStore } from "../store";
+import {
+  selectIsLead,
+  selectReviewStatus,
+  selectSquadOf,
+  useOpsStore,
+} from "../store";
 import type { WorkerSnapshot } from "../store/types";
 import { getVendorGlyph } from "./avatar";
 import WorkerAvatar from "./WorkerAvatar";
@@ -40,16 +45,20 @@ export default function Station({ data }: NodeProps<StationNode>) {
   const select = useOpsStore((s) => s.selectWorker);
   const squad = useOpsStore(selectSquadOf(data.id));
   const isLead = useOpsStore(selectIsLead(data.id));
-  const getReviewStatus = useOpsStore((s) => s.getReviewStatus);
-  const reviewStatus = getReviewStatus(data.id);
-  const identity = useWorkerIdentity(data.id);
+  // Subscribe to the reviewStatus slice reactively; the imperative
+  // getReviewStatus getter only subscribed to a stable function ref, so the
+  // tile's review badge never updated when a worker was accepted/rejected.
+  const reviewStatus = useOpsStore(selectReviewStatus(data.id));
+  const identity = useWorkerIdentity(data.id, !data.missionScoped);
   const [now, setNow] = useState<number>(() => Date.now());
 
-  // Identity overlay (P1-6): prefer authoritative WorkerInfo from the
-  // orchestrator when available, falling back to the snapshot defaults
-  // that fresh() seeds with vendor:"mock", model:null.
+  // Mission workers never persist a standalone WorkerInfo row: current events
+  // carry identity directly and legacy recordings use worker-ID inference.
+  // Standalone workers retain the WorkerInfo compatibility overlay. A non-null
+  // live model wins because switches and cost events can update the snapshot
+  // after the module-level identity lookup has already been cached.
   const effectiveVendor = identity?.vendor ?? data.vendor;
-  const effectiveModel = identity?.model ?? data.model;
+  const effectiveModel = data.model ?? identity?.model;
   const vendorGlyph = getVendorGlyph(effectiveVendor);
   const vendorLabel = vendorGlyph.vendorLabel;
   // Hide the chip for the placeholder vendors so the unmistakable

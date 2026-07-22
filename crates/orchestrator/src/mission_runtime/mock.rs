@@ -123,6 +123,8 @@ pub(super) async fn run_mock_mission(
                 worker_id: worker_id.clone(),
                 task_index: task.index,
                 task_title: task.title.clone(),
+                vendor: Some(event_schema::Vendor::Mock),
+                model: None,
             },
         );
 

@@ -5,6 +5,9 @@ description = "Vigla Tauri host"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
 publish.workspace = true
 
 [lib]

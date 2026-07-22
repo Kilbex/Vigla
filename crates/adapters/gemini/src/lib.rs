@@ -9,8 +9,8 @@
 //! with each stdout line; the supervisor wires it up end-to-end against
 //! a real `gemini` subprocess.
 //!
-//! The adapter is built against a real captured fixture
-//! (`tests/fixtures/happy_path.jsonl`). Observed line shapes:
+//! The adapter is built against a deterministic synthetic fixture
+//! (`tests/fixtures/happy_path.jsonl`) that models these line shapes:
 //!
 //! | type        | notable fields                                       |
 //! |-------------|------------------------------------------------------|
@@ -336,7 +336,7 @@ impl GeminiAdapter {
     /// Parse the `stats` block from a result line into a Cost event.
     /// Gemini's stream-json doesn't include a USD price, so usd is 0.0
     /// (the Settings panel can show "—" for unknown). Token counts and
-    /// model name are real.
+    /// model name come directly from the parsed stream.
     fn parse_cost(&self, line_value: &Value) -> Option<Cost> {
         let stats = line_value.get("stats")?;
         let input_tokens = stats

@@ -1,11 +1,10 @@
 use super::{MissionEventBus, MissionRuntimeError};
 use crate::mission::MissionState;
 use crate::mission_event::MissionEventKind;
-use crate::mission_workspace::MissionGitError;
+use crate::mission_workspace::MissionWorkspace;
 use std::path::Path;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
-use tokio::process::Command;
 use tokio::sync::watch;
 
 pub(super) async fn abort(
@@ -70,17 +69,6 @@ pub(super) fn emit(
 }
 
 pub(super) async fn run_git_in(cwd: &Path, args: &[&str]) -> Result<(), MissionRuntimeError> {
-    let output = Command::new("git")
-        .args(args)
-        .current_dir(cwd)
-        .output()
-        .await
-        .map_err(|e| MissionRuntimeError::Io(e.to_string()))?;
-    if !output.status.success() {
-        return Err(MissionRuntimeError::Git(MissionGitError::Git {
-            code: output.status.code().unwrap_or(-1),
-            stderr: String::from_utf8_lossy(&output.stderr).trim().to_string(),
-        }));
-    }
+    MissionWorkspace::run_git_process_in(cwd, args).await?;
     Ok(())
 }

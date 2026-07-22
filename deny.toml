@@ -1,7 +1,13 @@
 # cargo-deny policy for the complete locked dependency graph.
 #
-# `cargo deny check` is a required pull-request gate. Exceptions are narrow and
-# documented so a newly introduced license, source, or advisory fails closed.
+# `cargo deny --all-features check` is a required pull-request gate. Exceptions
+# are narrow and documented so a newly introduced license, source, or advisory
+# fails closed, including dependencies behind optional shipping features.
+
+# Keep this coverage in policy as well as CI so an invocation cannot silently
+# omit dependencies behind an optional feature.
+[graph]
+all-features = true
 
 [advisories]
 ignore = [
@@ -46,6 +52,21 @@ allow = [
   "Unicode-3.0",
   "Unlicense",
   "Zlib",
+]
+
+# Optional fastembed dependencies add three reviewed permissive licenses.
+# Keep them crate-scoped so a future dependency cannot introduce the same
+# license without a deliberate policy review.
+exceptions = [
+  { crate = "hmac-sha256", allow = ["ISC"] },
+  { crate = "ring", allow = ["ISC"] },
+  { crate = "rustls-webpki", allow = ["ISC"] },
+  { crate = "untrusted", allow = ["ISC"] },
+  { crate = "libfuzzer-sys", allow = ["NCSA"] },
+  # The TLS root data may be used and shared under CDLA-Permissive-2.0;
+  # redistributed data must retain the license text.
+  { crate = "webpki-root-certs", allow = ["CDLA-Permissive-2.0"] },
+  { crate = "webpki-roots", allow = ["CDLA-Permissive-2.0"] },
 ]
 
 [sources]

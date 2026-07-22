@@ -173,6 +173,13 @@ pub enum MissionEventKind {
         worker_id: String,
         task_index: u32,
         task_title: String,
+        /// Authoritative identity for newly emitted events. Optional so
+        /// recordings created before mission workers carried identity remain
+        /// replayable.
+        #[serde(default)]
+        vendor: Option<event_schema::Vendor>,
+        #[serde(default)]
+        model: Option<String>,
     },
 
     #[serde(rename = "worker.progress")]
@@ -595,10 +602,37 @@ mod tests {
                 worker_id: "mock-1".into(),
                 task_index: 0,
                 task_title: "step".into(),
+                vendor: Some(event_schema::Vendor::Mock),
+                model: Some("mock-model".into()),
             },
         };
         let json = serde_json::to_string(&ev).unwrap();
         assert!(json.contains("\"type\":\"worker.spawned\""));
+        assert!(json.contains("\"vendor\":\"mock\""));
+        assert!(json.contains("\"model\":\"mock-model\""));
+    }
+
+    #[test]
+    fn worker_spawned_deserializes_legacy_payload_without_identity() {
+        let json = r#"{
+            "mission_id":"demo-legacy",
+            "seq":1,
+            "ts":"2026-05-12T00:00:00.000Z",
+            "type":"worker.spawned",
+            "payload":{
+                "worker_id":"mock-1",
+                "task_index":0,
+                "task_title":"step"
+            }
+        }"#;
+        let event: MissionEvent = serde_json::from_str(json).unwrap();
+        match event.kind {
+            MissionEventKind::WorkerSpawned { vendor, model, .. } => {
+                assert_eq!(vendor, None);
+                assert_eq!(model, None);
+            }
+            other => panic!("expected WorkerSpawned, got {other:?}"),
+        }
     }
 
     #[test]

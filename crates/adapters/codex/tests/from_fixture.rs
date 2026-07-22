@@ -1,4 +1,4 @@
-//! Step 13 — feed real Codex CLI `--json` fixtures through
+//! Step 13 — feed deterministic synthetic Codex CLI `--json` fixtures through
 //! [`CodexAdapter`] and assert the resulting canonical-event stream.
 
 use adapter_core::{Adapter, AdapterExit};

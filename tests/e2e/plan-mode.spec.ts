@@ -82,7 +82,7 @@ test.describe("Mission plan governance", () => {
     await expect(e2ePage.getByText(/plan exceeds/i)).toBeHidden();
     // Three actions present.
     await expect(
-      e2ePage.getByRole("button", { name: /^abort run$/i }),
+      e2ePage.getByRole("button", { name: /^reject plan$/i }),
     ).toBeVisible();
     await expect(
       e2ePage.getByRole("button", { name: /^regenerate$/i }),
@@ -103,7 +103,7 @@ test.describe("Mission plan governance", () => {
     });
 
     await expect(
-      e2ePage.getByText(/plan exceeds the risk bound/i),
+      e2ePage.getByText(/risk exceeds the mission envelope/i),
     ).toBeVisible();
     // Banner uses role="alert" so screen readers announce it.
     await expect(e2ePage.locator(".mission-plan-preview__banner")).toBeVisible();
@@ -119,7 +119,7 @@ test.describe("Mission plan governance", () => {
       quality: { fit: "within", note: "" },
     });
 
-    await e2ePage.getByRole("button", { name: /^abort run$/i }).click();
+    await e2ePage.getByRole("button", { name: /^reject plan$/i }).click();
     await expect(e2ePage.getByLabel(/reject reason/i)).toBeVisible();
 
     await e2ePage
@@ -152,7 +152,7 @@ test.describe("Mission plan governance", () => {
     await expect(e2ePage.getByText(/plan exceeds/i)).toBeHidden();
     // Actions still present.
     await expect(
-      e2ePage.getByRole("button", { name: /^abort run$/i }),
+      e2ePage.getByRole("button", { name: /^reject plan$/i }),
     ).toBeVisible();
     await expect(
       e2ePage.getByRole("button", { name: /approve plan/i }),

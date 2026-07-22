@@ -234,22 +234,99 @@ async function freshPage(browser, { width = 1600, height = 1000 } = {}) {
       const image = new Image();
       image.src = source;
       await image.decode();
+      await document.fonts.ready;
       const canvas = document.createElement("canvas");
       canvas.width = 1280;
       canvas.height = 640;
       const context = canvas.getContext("2d");
       if (!context) throw new Error("2D canvas is unavailable");
+
+      const background = context.createLinearGradient(0, 0, 1280, 640);
+      background.addColorStop(0, "#06090f");
+      background.addColorStop(0.58, "#09131c");
+      background.addColorStop(1, "#071017");
+      context.fillStyle = background;
+      context.fillRect(0, 0, 1280, 640);
+
+      context.strokeStyle = "rgba(56, 197, 180, 0.07)";
+      context.lineWidth = 1;
+      for (let x = 0; x <= 1280; x += 40) {
+        context.beginPath();
+        context.moveTo(x, 0);
+        context.lineTo(x, 640);
+        context.stroke();
+      }
+      for (let y = 0; y <= 640; y += 40) {
+        context.beginPath();
+        context.moveTo(0, y);
+        context.lineTo(1280, y);
+        context.stroke();
+      }
+
+      context.save();
+      context.beginPath();
+      context.roundRect(616, 84, 720, 456, 18);
+      context.clip();
       context.drawImage(
         image,
         0,
         0,
         image.naturalWidth,
-        Math.round(image.naturalHeight * 0.8),
-        0,
-        0,
-        1280,
-        640,
+        image.naturalHeight,
+        616,
+        84,
+        720,
+        450,
       );
+      const imageShade = context.createLinearGradient(616, 0, 800, 0);
+      imageShade.addColorStop(0, "rgba(6, 9, 15, 0.72)");
+      imageShade.addColorStop(1, "rgba(6, 9, 15, 0)");
+      context.fillStyle = imageShade;
+      context.fillRect(616, 84, 200, 456);
+      context.restore();
+
+      context.strokeStyle = "rgba(56, 197, 180, 0.42)";
+      context.lineWidth = 2;
+      context.beginPath();
+      context.roundRect(616, 84, 720, 456, 18);
+      context.stroke();
+
+      context.fillStyle = "#38c5b4";
+      context.beginPath();
+      context.arc(76, 71, 9, 0, Math.PI * 2);
+      context.fill();
+      context.strokeStyle = "rgba(56, 197, 180, 0.55)";
+      context.beginPath();
+      context.arc(76, 71, 17, 0, Math.PI * 2);
+      context.stroke();
+      context.fillStyle = "#f4f7fa";
+      context.font = "750 28px Inter, -apple-system, BlinkMacSystemFont, sans-serif";
+      context.fillText("Vigla", 108, 81);
+
+      context.fillStyle = "rgba(56, 197, 180, 0.13)";
+      context.beginPath();
+      context.roundRect(68, 137, 244, 38, 19);
+      context.fill();
+      context.fillStyle = "#67d7ca";
+      context.font = "700 15px Inter, -apple-system, BlinkMacSystemFont, sans-serif";
+      context.letterSpacing = "1.1px";
+      context.fillText("OPEN SOURCE · LOCAL-FIRST", 88, 162);
+
+      context.fillStyle = "#f4f7fa";
+      context.font = "760 58px Inter, -apple-system, BlinkMacSystemFont, sans-serif";
+      context.letterSpacing = "-2px";
+      context.fillText("Supervise the merge.", 68, 250);
+      context.fillText("Not every terminal.", 68, 318);
+
+      context.fillStyle = "#aeb8c7";
+      context.font = "450 22px Inter, -apple-system, BlinkMacSystemFont, sans-serif";
+      context.letterSpacing = "0px";
+      context.fillText("Cross-vendor coding agents.", 68, 377);
+      context.fillText("One audited, reversible mission.", 68, 410);
+
+      context.fillStyle = "#778497";
+      context.font = "600 17px 'JetBrains Mono', ui-monospace, monospace";
+      context.fillText("github.com/Kilbex/Vigla", 68, 558);
       return canvas.toDataURL("image/png");
     }, `data:image/png;base64,${opsScreenshot.toString("base64")}`);
     fs.writeFileSync(

@@ -3,6 +3,10 @@
 import { cp, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import {
+  copyLegalDistribution,
+  legalDistributionFiles,
+} from "./generate-license-notices.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const siteSource = path.join(repoRoot, "site");
@@ -47,7 +51,7 @@ function intro(markdown) {
     .filter((line) => {
       const trimmed = line.trim();
       return (
-        !/^<\/?div/.test(trimmed) &&
+        !/^<\/?(?:a|div|sub)\b/.test(trimmed) &&
         !/^<img\b/.test(trimmed) &&
         !/^!\[/.test(trimmed) &&
         !/^\[!\[/.test(trimmed) &&
@@ -163,6 +167,36 @@ async function assertSize(filePath, label, minimumBytes, maximumBytes) {
   }
 }
 
+async function assertSameFile(actualPath, expectedPath, label) {
+  const [actual, expected] = await Promise.all([
+    readFile(actualPath),
+    readFile(expectedPath),
+  ]);
+  if (!actual.equals(expected)) {
+    throw new Error(`${label} does not match its canonical source`);
+  }
+}
+
+for (const name of legalDistributionFiles) {
+  await assertPath(path.join(repoRoot, name), name);
+  await assertSameFile(
+    path.join(webDemoPath, name),
+    path.join(repoRoot, name),
+    `web demo ${name}`,
+  );
+}
+
+const retainedLicenseNames = await readdir(
+  path.join(repoRoot, "third_party_licenses"),
+);
+for (const name of retainedLicenseNames) {
+  await assertSameFile(
+    path.join(webDemoPath, "third_party_licenses", name),
+    path.join(repoRoot, "third_party_licenses", name),
+    `web demo retained license ${name}`,
+  );
+}
+
 for (const reference of localReferences(siteHtml)) {
   const withoutFragment = reference.split("#", 1)[0];
   if (withoutFragment === "./") continue;
@@ -209,6 +243,18 @@ await Promise.all([
     1,
     192 * 1024,
   ),
+  assertSize(
+    path.join(mediaPath, "roadmap-horizon.webp"),
+    "roadmap illustration",
+    32 * 1024,
+    256 * 1024,
+  ),
+  assertSize(
+    path.join(mediaPath, "social-preview.png"),
+    "social preview",
+    64 * 1024,
+    768 * 1024,
+  ),
 ]);
 
 if (!siteHtml.includes('data-replay-src="./media/vigla-demo.webp"')) {
@@ -241,6 +287,7 @@ await Promise.all([
   cp(webDemoPath, path.join(siteDist, "demo"), { recursive: true }),
   cp(llmsPath, path.join(siteDist, "llms.txt")),
   cp(llmsFullPath, path.join(siteDist, "llms-full.txt")),
+  copyLegalDistribution(siteDist),
   writeFile(path.join(siteDist, ".nojekyll"), "", "utf8"),
 ]);
 

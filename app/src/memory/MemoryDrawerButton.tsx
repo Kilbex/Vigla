@@ -26,7 +26,7 @@ export default function MemoryDrawerButton() {
         aria-expanded={open}
         title="Show memory attached to this mission"
       >
-        memory
+        Memory
       </button>
       {open ? <MemoryDrawer onClose={close} /> : null}
     </>

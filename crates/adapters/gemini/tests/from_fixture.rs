@@ -1,9 +1,9 @@
 //! Fixture-driven tests for `GeminiAdapter`.
 //!
-//! `tests/fixtures/happy_path.jsonl` was captured from real
-//! `gemini --output-format stream-json` output (see fixtures/README.md).
-//! These tests verify the adapter translates that wire format into the
-//! canonical event shape correctly.
+//! `tests/fixtures/happy_path.jsonl` is a deterministic synthetic model of
+//! `gemini --output-format stream-json` output (see fixtures/README.md). These
+//! tests verify the adapter translates that wire format into the canonical
+//! event shape correctly.
 
 use adapter_core::{Adapter, AdapterExit};
 use event_schema::{EventKind, FileOp, LogStream, WorkerState};

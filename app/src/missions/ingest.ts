@@ -39,6 +39,7 @@ export function applyMissionEvent(
         completionSummary: null,
         filesChanged: 0,
         resolution: null,
+        restoredSha: null,
         abortReason: null,
         attention: [],
         planGeneration: 0,
@@ -136,7 +137,7 @@ export function applyMissionEvent(
       next.planOverview = event.payload.overview ?? null;
       next.planTechStack = event.payload.tech_stack ?? null;
       next.planEnvelopeFit = event.payload.envelope_fit ?? null;
-      next.statusLine = "Plan proposed — review and approve";
+      next.statusLine = "Awaiting plan approval";
       break;
     }
     case "plan.confirmed": {
@@ -260,6 +261,13 @@ export function applyMissionEvent(
       // an unresolved decision that the user has now resolved by
       // choosing the merge outcome. Clear the entire array so the
       // attention badge collapses with the disposition.
+      next.attention = [];
+      break;
+    }
+    case "mission.reverted": {
+      next.lifecycle = "reverted";
+      next.restoredSha = event.payload.restored_sha;
+      next.statusLine = `Merged changes reverted · restored SHA ${event.payload.restored_sha}`;
       next.attention = [];
       break;
     }
@@ -451,6 +459,7 @@ export function applyMissionEvent(
 
   const terminalOverlayDismissed =
     event.type === "mission.merge_resolved" ||
+    event.type === "mission.reverted" ||
     event.type === "mission.aborted" ||
     event.type === "mission.extended"
       ? false
@@ -498,6 +507,9 @@ function deriveSupervisorActivity(
   }
   if (lifecycle === "aborted") {
     return "supervisor: aborted";
+  }
+  if (lifecycle === "reverted") {
+    return "supervisor: merged changes reverted";
   }
 
   switch (event.type) {
@@ -661,7 +673,8 @@ function dispatchInboxLookup(
       const isCompletionVerdict =
         event.type === "mission.completion_verdict_rendered" ||
         event.type === "mission.completed" ||
-        event.type === "mission.merge_resolved";
+        event.type === "mission.merge_resolved" ||
+        event.type === "mission.reverted";
       const windowHidden =
         typeof document !== "undefined" && document.visibilityState !== "visible";
       const fireBanner =
@@ -786,9 +799,15 @@ function describeEvent(
         detail: null,
         bound: null,
       };
+    case "mission.reverted":
+      return {
+        title: "Mission reverted",
+        detail: `Restored SHA ${event.payload.restored_sha}`,
+        bound: null,
+      };
     case "plan.proposed":
       return {
-        title: `Plan proposed (${event.payload.tasks.length} task${
+        title: `Plan ready for review (${event.payload.tasks.length} task${
           event.payload.tasks.length === 1 ? "" : "s"
         })`,
         detail: "Review and approve or request a new plan",

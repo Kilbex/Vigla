@@ -8,6 +8,8 @@
 //! instead of `719_468`) and silently back-dated an entire vendor's
 //! events by ~10 months. A single source of truth makes that class of
 //! bug unrepresentable.
+//! The upstream MIT attribution is retained in `THIRD_PARTY_NOTICES.md` and
+//! `third_party_licenses/howard-hinnant-date-MIT.txt`.
 //!
 //! Pure integer arithmetic over `std` only — keeps this crate
 //! runtime-free, exactly as the rest of `event-schema` is.

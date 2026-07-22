@@ -5,9 +5,35 @@ content, but several launch controls require repository-owner or personal
 account access. Complete this checklist after the launch commit is on `main`
 and before announcements.
 
+## Publication preflight
+
+Before the launch commit leaves the workstation:
+
+- Run `gitleaks git --redact --no-banner` and
+  `node scripts/scan-publishable-tree.mjs`, then manually review images,
+  fixtures, absolute paths, URLs, and author metadata. The helper scans exactly
+  tracked plus non-ignored untracked files in a temporary tree, so ignored
+  build caches and private notes are neither published nor needlessly scanned.
+  A zero secret-detector result does not clear personal identity or captured
+  account telemetry.
+- Inspect every publishable commit with
+  `git log --all --format='%h %an <%ae>'`. Configure a repository-local public
+  alias and GitHub noreply address before creating the final commits. If old
+  commits contain private identity or captured session data, rewrite or
+  recreate the publishable history, re-scan it, and update the remote before
+  launch; `.mailmap` does not remove raw commit metadata.
+- Run the complete gate in [CONTRIBUTING.md](../../CONTRIBUTING.md), inspect the
+  intended release diff, and confirm ignored private directories are absent
+  from `git ls-files`.
+- Enable private vulnerability reporting before publishing `SECURITY.md` as an
+  accepted disclosure route. If it cannot be enabled, publication is blocked.
+
 ## Automated owner step
 
-Preview, then apply the idempotent metadata/label/issue bootstrap:
+Preview, then apply the sequentially idempotent metadata/label/issue
+bootstrap. Run it from one owner shell at a time; GitHub does not offer an
+atomic “create issue only if this title is absent” operation, so concurrent
+bootstrap invocations can race:
 
 ```sh
 node scripts/bootstrap-github.mjs --dry-run
@@ -15,9 +41,9 @@ node scripts/bootstrap-github.mjs
 ```
 
 It sets the description, Pages homepage, topics, Discussions/Issues, squash-only
-merge policy, branch cleanup, 19 labels, and 12 real issues with commands and
-acceptance criteria. It never changes visibility, pushes code, uploads a
-binary, or creates a release.
+merge policy, branch cleanup, private vulnerability reporting, 21 labels, and
+11 real issues with commands and acceptance criteria. It never changes
+visibility, pushes code, uploads a binary, or creates a release.
 
 ## Repository settings
 
@@ -26,17 +52,24 @@ binary, or creates a release.
   `/llms-full.txt`.
 - Upload `docs/media/social-preview.png` as the repository social preview.
 - Enable private vulnerability reporting, Dependabot alerts, and Dependabot
-  security updates. Confirm the private-report button from a signed-out/private
-  browser without submitting a report.
-- Keep Actions permissions read-only by default; allow Pages' workflow-scoped
-  `pages: write` and `id-token: write` permissions.
+  security updates, secret scanning, and push protection. Confirm the
+  private-report button from a signed-out/private browser without submitting a
+  report.
+- Keep Actions permissions read-only by default. The Pages build job receives
+  only `contents: read` and `pages: read`; only the deploy job receives
+  `pages: write` and `id-token: write`.
 - Do not enable Releases automation or upload application binaries.
 
 ## Main branch ruleset
 
-Require pull requests with one approving review, code-owner review, resolved
+Require pull requests with one approving code-owner review, resolved
 conversations, and branches updated before merge. Block force pushes and branch
-deletion. Allow squash merge only. Require these checks, which run on every PR:
+deletion. Allow squash merge only. While `CODEOWNERS` names a single
+maintainer, add the repository-admin role to the ruleset bypass list in **For
+pull requests only** mode. The maintainer must still open a PR and may use the
+bypass only for the impossible self-review, after every required check passes.
+Remove that bypass as soon as a second trusted maintainer can review changes.
+Require these checks, which run on every PR:
 
 - `Rust`
 - `Frontend`
@@ -46,8 +79,9 @@ deletion. Allow squash merge only. Require these checks, which run on every PR:
 
 Do not require the path-filtered `Package smoke` check globally; require and
 inspect it whenever it appears on packaging, app, crate, or lockfile changes.
-Apply the rules to administrators unless an emergency procedure is documented
-in the incident record.
+Except for the temporary PR-only self-review bypass above, apply the rules to
+administrators unless an emergency procedure is documented in the incident
+record.
 
 ## Discussions
 
@@ -99,3 +133,9 @@ SUPPORT.md in one PR. Do not commit a placeholder or dead invite.
   form.
 - Have a second person follow the clean-clone mock and DMG instructions with a
   stopwatch; record OS, commit, commands, and result privately.
+
+After every required workflow and signed-out check is green, move the initial
+release notes from `Unreleased` to a dated `0.1.0` section and create an
+annotated `v0.1.0` tag on that exact source commit. Vigla's first release is a
+source reference only: do not attach a DMG or present an ad-hoc local signature
+as a maintainer-issued binary.

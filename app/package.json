@@ -2,14 +2,27 @@
   "name": "vigla-app",
   "private": true,
   "version": "0.1.0",
+  "description": "Local-first mission control for supervised AI coding CLIs",
+  "license": "Apache-2.0",
+  "homepage": "https://kilbex.github.io/Vigla/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Kilbex/Vigla.git"
+  },
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=10"
+  },
   "packageManager": "pnpm@10.28.2",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
-    "build:webdemo": "tsc -b && vite build --mode webdemo --outDir dist-webdemo",
+    "licenses:check": "node ../scripts/generate-license-notices.mjs --check",
+    "licenses:write": "node ../scripts/generate-license-notices.mjs --write",
+    "build": "pnpm licenses:check && tsc -b && vite build",
+    "build:webdemo": "pnpm licenses:check && tsc -b && vite build --mode webdemo --outDir dist-webdemo",
     "site:build": "pnpm build:webdemo && node ../scripts/build-site.mjs",
-    "site:check": "node ../scripts/build-site.mjs --check",
+    "site:check": "pnpm licenses:check && node ../scripts/build-site.mjs --check",
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
@@ -20,6 +33,7 @@
     "e2e:site": "pnpm site:build && node ../tests/e2e/run-playwright.cjs --site test -c ../tests/e2e/playwright.config.ts site.spec.ts"
   },
   "dependencies": {
+    "@dagrejs/dagre": "^3.0.0",
     "@fontsource-variable/inter": "^5.2.8",
     "@fontsource-variable/jetbrains-mono": "^5.2.8",
     "@tauri-apps/api": "^2.1.1",
@@ -34,7 +48,6 @@
     "zustand": "^5.0.2"
   },
   "devDependencies": {
-    "@dagrejs/dagre": "^3.0.0",
     "@playwright/test": "^1.60.0",
     "@tailwindcss/vite": "^4.3.0",
     "@tauri-apps/cli": "^2.1.0",

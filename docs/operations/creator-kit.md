@@ -77,13 +77,16 @@ supervision as production-gated, or Linux/Windows as supported desktops.
 | [`ops-room.png`](../media/ops-room.png) | Fleet overview | Claude, Codex, Antigravity, and Copilot mock workers |
 | [`plan-review.png`](../media/plan-review.png) | Authority-envelope explanation | Proposed plan and bound fit before execution |
 | [`mission-inbox.png`](../media/mission-inbox.png) | Audit and recovery close-up | Structured verdict, residual risk, and revert control |
-| [`social-preview.png`](../media/social-preview.png) | Link card / title card | Exact 1280×640 crop |
+| [`roadmap-horizon.webp`](../media/roadmap-horizon.webp) | Public roadmap / article break | 1536×842 interpretation of the published Now / Next / Later tracks |
+| [`social-preview.png`](../media/social-preview.png) | Link card / title card | Exact 1280×640 value-proposition card with captured product UI |
 
-The capture inputs are fictional and contain no tokens, user paths, private
-prompts, or vendor traffic. Regenerate stills with
+The product-capture inputs are fictional and contain no tokens, user paths,
+private prompts, or vendor traffic. Regenerate stills with
 `scripts/capture-readme-media.cjs` and motion with
-`scripts/capture-web-demo.cjs`. Preserve the product name and link back to the
-canonical repository when editing the assets.
+`scripts/capture-web-demo.cjs`. The roadmap illustration's source, prompt, and
+web derivative are documented in [`docs/media/README.md`](../media/README.md).
+Preserve the product name and link back to the canonical repository when
+editing the assets.
 
 ## Evidence and follow-up
 

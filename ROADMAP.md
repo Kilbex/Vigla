@@ -36,6 +36,10 @@ are implemented. Current focus:
   [docs/GOOD_FIRST_ISSUES.md](./docs/GOOD_FIRST_ISSUES.md).
 - **Reproducible local updates.** Versioned source tags and a stable local build
   path without a maintainer-operated binary distribution channel.
+- **[Mac App Store feasibility](./docs/roadmap/mac-app-store.md).** Prove the
+  core mission flow inside Apple's required App Sandbox — persistent access to
+  a user-selected repository, worktree operations, and user-installed CLI
+  execution — before committing to store packaging or promotion.
 - **True post-verdict continuation.** The persisted Extend wire shape is kept
   replay-compatible, but the current UI offers only Merge and Discard and the
   runtime rejects Extend. Re-enable it only with a tested supervisor re-entry

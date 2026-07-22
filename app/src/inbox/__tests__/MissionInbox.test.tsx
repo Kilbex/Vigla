@@ -165,6 +165,37 @@ describe("MissionInbox", () => {
     expect(screen.queryByRole("button", { name: /revert mission/i })).toBeNull();
   });
 
+  it("styles an active reverted mission as terminal instead of running", () => {
+    (useMissionsStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (
+        selector?: (s: {
+          active: ActiveMission | null;
+          currentRepoCwd: string | null;
+        }) => unknown,
+      ) => {
+        const state = {
+          active: {
+            ...FULL_MISSION,
+            lifecycle: "reverted" as const,
+            restoredSha: "abc1234",
+          },
+          currentRepoCwd: "/repo",
+        };
+        return selector ? selector(state) : state;
+      },
+    );
+
+    render(<MissionInbox />);
+
+    const badge = screen.getByLabelText("Mission status: reverted");
+    expect(badge.classList.contains("mission-inbox-status-badge--discarded")).toBe(
+      true,
+    );
+    expect(badge.classList.contains("mission-inbox-status-badge--running")).toBe(
+      false,
+    );
+  });
+
   it("back button transitions to inbox surface", () => {
     render(<MissionInbox />);
     fireEvent.click(screen.getByRole("button", { name: /back/i }));

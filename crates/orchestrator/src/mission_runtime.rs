@@ -37,11 +37,15 @@ use crate::mission::{MissionError, MissionSpec, MissionState, ResolveAction};
 use crate::mission_event::{MergeResolution, MissionEventKind};
 use crate::mission_workspace::{MissionGitError, MissionWorkspace};
 use crate::{DispositionAction, MissionOutcomeState, Repository};
+use event_schema::memory::BarrierKind;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::{mpsc, watch, Mutex};
+
+const MEMORY_BARRIER_RETRY_ATTEMPTS: u32 = 6;
+const MEMORY_BARRIER_RETRY_BASE_MS: u64 = 50;
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum MissionRuntimeError {
@@ -184,6 +188,10 @@ pub struct MissionRuntime {
     event_bus: MissionEventBus,
     state_tx: Arc<watch::Sender<MissionState>>,
     state_rx: watch::Receiver<MissionState>,
+    /// Becomes true only after the mission execution future has finished all
+    /// event publication and heartbeat side effects. A parked state is a UI
+    /// readiness signal, not by itself proof that the producer has returned.
+    execution_done_rx: watch::Receiver<bool>,
     cancel: Arc<CancelToken>,
     seq: Arc<AtomicU64>,
     /// Serializes `resolve` so two concurrent callers cannot both
@@ -223,6 +231,14 @@ struct DispositionStore {
     repo_root: String,
 }
 
+struct ExecutionDoneOnDrop(watch::Sender<bool>);
+
+impl Drop for ExecutionDoneOnDrop {
+    fn drop(&mut self) {
+        self.0.send(true).ok();
+    }
+}
+
 impl MissionRuntime {
     pub async fn start(
         spec: MissionSpec,
@@ -255,6 +271,7 @@ impl MissionRuntime {
         let event_bus = MissionEventBus::new(256);
         let (state_tx_raw, state_rx) = watch::channel(MissionState::Created);
         let state_tx = Arc::new(state_tx_raw);
+        let (execution_done_tx, execution_done_rx) = watch::channel(false);
         let cancel = CancelToken::new();
         let seq = Arc::new(AtomicU64::new(0));
         // Mock missions never pause at PendingPlanApproval, so the
@@ -283,6 +300,7 @@ impl MissionRuntime {
         let err_mid = task_mid.clone();
 
         crate::spawn_supervised("mission_runtime::mock_mission", async move {
+            let _execution_done = ExecutionDoneOnDrop(execution_done_tx);
             if let Err(e) = run_mock_mission(
                 task_mid,
                 task_spec,
@@ -307,6 +325,7 @@ impl MissionRuntime {
             event_bus,
             state_tx,
             state_rx,
+            execution_done_rx,
             cancel,
             seq,
             resolve_lock: Arc::new(Mutex::new(())),
@@ -369,6 +388,7 @@ impl MissionRuntime {
         let event_bus = MissionEventBus::new(256);
         let (state_tx_raw, state_rx) = watch::channel(MissionState::Created);
         let state_tx = Arc::new(state_tx_raw);
+        let (execution_done_tx, execution_done_rx) = watch::channel(false);
         let cancel = CancelToken::new();
         let seq = Arc::new(AtomicU64::new(0));
         // QC-2: plan-decision channel. Capacity 4 absorbs a stray
@@ -398,6 +418,7 @@ impl MissionRuntime {
         let err_mid = task_mid.clone();
 
         crate::spawn_supervised("mission_runtime::supervisor_mission", async move {
+            let _execution_done = ExecutionDoneOnDrop(execution_done_tx);
             if let Err(e) = crate::mission_supervisor_run::run_supervisor_mission(
                 task_mid,
                 task_spec,
@@ -431,6 +452,7 @@ impl MissionRuntime {
             event_bus,
             state_tx,
             state_rx,
+            execution_done_rx,
             cancel,
             seq,
             resolve_lock: Arc::new(Mutex::new(())),
@@ -492,6 +514,18 @@ impl MissionRuntime {
         self.state_rx.borrow().clone()
     }
 
+    async fn await_execution_done(&self) {
+        let mut execution_done = self.execution_done_rx.clone();
+        loop {
+            if *execution_done.borrow_and_update() {
+                return;
+            }
+            if execution_done.changed().await.is_err() {
+                return;
+            }
+        }
+    }
+
     /// Wait until the mission reaches `CompletePendingMerge` or any
     /// terminal state. Returns the observed state.
     pub async fn await_complete_or_terminal(&self) -> MissionState {
@@ -539,44 +573,333 @@ impl MissionRuntime {
             return Err(MissionRuntimeError::AlreadyTerminated);
         }
         self.cancel.cancel();
-        // These are parked decision states: the execution future has already
-        // returned, so no background task remains to observe cancellation.
-        // Abort owns the terminal transition directly in this case.
+        // These are parked decision states: the execution future will not
+        // transition itself to Aborted after publishing them. It may still be
+        // finishing its last events, so abort_parked_mission waits for the
+        // explicit execution-complete signal before taking ownership.
         if matches!(
             current,
             MissionState::CompletePendingMerge | MissionState::Attention
         ) {
-            let store = self.current_disposition_store().await;
-            let now = crate::ids::rfc3339_now();
-            self.persist_terminal_outcome(store.as_ref(), MissionOutcomeState::Aborted, &now)
-                .await?;
-            self.state_tx.send(MissionState::Aborted).ok();
-            emit(
-                &self.event_bus,
-                &self.mission_id,
-                &self.seq,
-                MissionEventKind::Aborted {
-                    reason: "user abort".into(),
-                },
-            );
-            return Ok(());
+            return self.abort_parked_mission().await;
         }
         let mut rx = self.state_rx.clone();
         loop {
             let s = rx.borrow_and_update().clone();
-            if matches!(s, MissionState::Aborted) {
-                let store = self.current_disposition_store().await;
-                let now = crate::ids::rfc3339_now();
+            match s {
+                MissionState::Aborted => {
+                    let store = self.current_disposition_store().await;
+                    let now = crate::ids::rfc3339_now();
+                    return self
+                        .persist_terminal_outcome(
+                            store.as_ref(),
+                            MissionOutcomeState::Aborted,
+                            &now,
+                        )
+                        .await;
+                }
+                MissionState::Merged | MissionState::Discarded => return Ok(()),
+                // The mission parked (CompletePendingMerge / Attention) AFTER
+                // our initial state sample. This is a real TOCTOU window: the
+                // background task does not take `resolve_lock`, so it can move
+                // the state after line `let current = self.state();`. Its
+                // execution future will return without writing `Aborted`.
+                // Own the terminal transition here exactly as the
+                // parked-at-sample branch above does — otherwise this loop
+                // would block on `rx.changed()` forever while holding
+                // `resolve_lock`, hanging every later resolve()/abort().
+                MissionState::CompletePendingMerge | MissionState::Attention => {
+                    return self.abort_parked_mission().await;
+                }
+                _ => {
+                    if rx.changed().await.is_err() {
+                        return Ok(());
+                    }
+                }
+            }
+        }
+    }
+
+    /// Drive a *parked* mission (`CompletePendingMerge` / `Attention`) to
+    /// `Aborted` directly. In these states the execution future will not
+    /// observe cancellation and write `Aborted`; after its final publication
+    /// side effects finish, abort must own the terminal transition itself.
+    /// Callers must hold `resolve_lock` (serialising against `resolve`).
+    async fn abort_parked_mission(&self) -> Result<(), MissionRuntimeError> {
+        self.await_execution_done().await;
+        let store = self.current_disposition_store().await;
+        let now = crate::ids::rfc3339_now();
+        match self.state() {
+            MissionState::Aborted => {
                 return self
                     .persist_terminal_outcome(store.as_ref(), MissionOutcomeState::Aborted, &now)
                     .await;
             }
-            if matches!(s, MissionState::Merged | MissionState::Discarded) {
-                return Ok(());
+            MissionState::Merged | MissionState::Discarded => return Ok(()),
+            _ => {}
+        }
+        if self
+            .reconcile_parked_disposition(store.as_ref(), &now)
+            .await?
+        {
+            return Ok(());
+        }
+        self.persist_terminal_outcome(store.as_ref(), MissionOutcomeState::Aborted, &now)
+            .await?;
+        if let Some(store) = &store {
+            if let Err(error) = store
+                .repository
+                .clear_disposition_intent(&self.mission_id)
+                .await
+            {
+                tracing::warn!(
+                    "vigla: aborted mission {} left a reconciliation journal row: {error}",
+                    self.mission_id
+                );
             }
-            if rx.changed().await.is_err() {
-                return Ok(());
+        }
+        self.state_tx.send(MissionState::Aborted).ok();
+        emit(
+            &self.event_bus,
+            &self.mission_id,
+            &self.seq,
+            MissionEventKind::Aborted {
+                reason: "user abort".into(),
+            },
+        );
+        Ok(())
+    }
+
+    async fn reconcile_parked_disposition(
+        &self,
+        store: Option<&DispositionStore>,
+        updated_at: &str,
+    ) -> Result<bool, MissionRuntimeError> {
+        let mut intent = None;
+        if let Some(store) = store {
+            if let Some(outcome) = store
+                .repository
+                .mission_outcome(&self.mission_id)
+                .await
+                .map_err(|error| MissionRuntimeError::Persistence(error.to_string()))?
+            {
+                if outcome.repo_root.as_deref() != Some(store.repo_root.as_str())
+                    || outcome.target_ref != self.spec.target_ref
+                {
+                    return Err(MissionRuntimeError::Persistence(format!(
+                        "mission {} has a terminal outcome for a different repository or target",
+                        self.mission_id
+                    )));
+                }
+                match outcome.state {
+                    MissionOutcomeState::Merged => {
+                        self.finish_reconciled_resolution(
+                            store,
+                            MissionOutcomeState::Merged,
+                            MergeResolution::Merged,
+                            event_schema::memory::BarrierKind::Accept,
+                            updated_at,
+                        )
+                        .await?;
+                        return Ok(true);
+                    }
+                    MissionOutcomeState::Discarded => {
+                        self.finish_reconciled_resolution(
+                            store,
+                            MissionOutcomeState::Discarded,
+                            MergeResolution::Discarded,
+                            event_schema::memory::BarrierKind::Scrub,
+                            updated_at,
+                        )
+                        .await?;
+                        return Ok(true);
+                    }
+                    MissionOutcomeState::Aborted => return Ok(false),
+                }
             }
+
+            intent = store
+                .repository
+                .list_disposition_intents()
+                .await
+                .map_err(|error| MissionRuntimeError::Persistence(error.to_string()))?
+                .into_iter()
+                .find(|intent| intent.mission_id == self.mission_id);
+            if let Some(intent) = &intent {
+                if intent.repo_root != store.repo_root || intent.target_ref != self.spec.target_ref
+                {
+                    return Err(MissionRuntimeError::Persistence(format!(
+                        "mission {} has a disposition intent for a different repository or target",
+                        self.mission_id
+                    )));
+                }
+            }
+        }
+
+        let intent_action = intent.as_ref().map(|intent| intent.action);
+        if intent_action == Some(DispositionAction::Merge)
+            && self
+                .workspace
+                .final_merge_is_applied(&self.spec.target_ref)
+                .await?
+        {
+            let Some(store) = store else {
+                if let Err(error) = self.workspace.discard().await {
+                    tracing::error!(
+                        "vigla: reconciled mission {} is applied but cleanup remains pending: {error}",
+                        self.mission_id
+                    );
+                }
+                self.publish_reconciled_resolution(
+                    MissionState::Merged,
+                    MergeResolution::Merged,
+                    event_schema::memory::BarrierKind::Accept,
+                )
+                .await;
+                return Ok(true);
+            };
+            self.finish_reconciled_resolution(
+                store,
+                MissionOutcomeState::Merged,
+                MergeResolution::Merged,
+                event_schema::memory::BarrierKind::Accept,
+                updated_at,
+            )
+            .await?;
+            return Ok(true);
+        }
+
+        if intent_action == Some(DispositionAction::Discard) {
+            self.workspace.discard().await?;
+            let store = store.expect("a durable intent requires a disposition store");
+            self.persist_terminal_outcome(Some(store), MissionOutcomeState::Discarded, updated_at)
+                .await?;
+            if let Err(error) = store
+                .repository
+                .clear_disposition_intent(&self.mission_id)
+                .await
+            {
+                tracing::warn!(
+                    "vigla: discarded mission {} left a reconciliation journal row: {error}",
+                    self.mission_id
+                );
+            }
+            self.publish_reconciled_resolution(
+                MissionState::Discarded,
+                MergeResolution::Discarded,
+                event_schema::memory::BarrierKind::Scrub,
+            )
+            .await;
+            return Ok(true);
+        }
+
+        Ok(false)
+    }
+
+    async fn finish_reconciled_resolution(
+        &self,
+        store: &DispositionStore,
+        outcome: MissionOutcomeState,
+        resolution: MergeResolution,
+        barrier: event_schema::memory::BarrierKind,
+        updated_at: &str,
+    ) -> Result<(), MissionRuntimeError> {
+        self.persist_terminal_outcome(Some(store), outcome, updated_at)
+            .await?;
+        let cleanup = self.workspace.discard().await;
+        if let Err(error) = &cleanup {
+            tracing::error!(
+                "vigla: reconciled mission {} is durable but cleanup remains pending: {error}",
+                self.mission_id
+            );
+        }
+        if cleanup.is_ok() {
+            if let Err(error) = store
+                .repository
+                .clear_disposition_intent(&self.mission_id)
+                .await
+            {
+                tracing::warn!(
+                    "vigla: reconciled mission {} left a reconciliation journal row: {error}",
+                    self.mission_id
+                );
+            }
+        }
+        self.publish_reconciled_resolution(
+            match outcome {
+                MissionOutcomeState::Merged => MissionState::Merged,
+                MissionOutcomeState::Discarded => MissionState::Discarded,
+                MissionOutcomeState::Aborted => unreachable!("abort is not a resolution"),
+            },
+            resolution,
+            barrier,
+        )
+        .await;
+        Ok(())
+    }
+
+    async fn publish_reconciled_resolution(
+        &self,
+        state: MissionState,
+        resolution: MergeResolution,
+        barrier: BarrierKind,
+    ) {
+        self.state_tx.send(state).ok();
+        emit(
+            &self.event_bus,
+            &self.mission_id,
+            &self.seq,
+            MissionEventKind::MergeResolved { resolution },
+        );
+        self.apply_memory_barrier(barrier).await;
+    }
+
+    async fn apply_memory_barrier(&self, barrier: BarrierKind) {
+        let Some(kernel) = &self.memory else {
+            return;
+        };
+        if let Err(error) = kernel.on_mission_barrier(&self.mission_id, barrier).await {
+            tracing::error!(
+                "vigla: memory barrier failed for terminal mission {} ({:?}); retrying: {error}",
+                self.mission_id,
+                barrier
+            );
+            let kernel = Arc::clone(kernel);
+            let mission_id = self.mission_id.clone();
+            crate::spawn_supervised("mission_runtime::memory_barrier_retry", async move {
+                for attempt in 1..=MEMORY_BARRIER_RETRY_ATTEMPTS {
+                    let shift = attempt.saturating_sub(1).min(10);
+                    let delay_ms = MEMORY_BARRIER_RETRY_BASE_MS.saturating_mul(1_u64 << shift);
+                    tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                    match kernel.on_mission_barrier(&mission_id, barrier).await {
+                        Ok(_) => {
+                            tracing::info!(
+                                mission_id,
+                                ?barrier,
+                                attempt,
+                                "vigla: terminal memory barrier retry completed"
+                            );
+                            return;
+                        }
+                        Err(error) if attempt < MEMORY_BARRIER_RETRY_ATTEMPTS => {
+                            tracing::warn!(
+                                mission_id,
+                                ?barrier,
+                                attempt,
+                                "vigla: terminal memory barrier retry failed: {error}"
+                            );
+                        }
+                        Err(error) => {
+                            tracing::error!(
+                                mission_id,
+                                ?barrier,
+                                attempt,
+                                "vigla: terminal memory barrier retries exhausted: {error}"
+                            );
+                        }
+                    }
+                }
+            });
         }
     }
 
@@ -676,6 +999,18 @@ impl MissionRuntime {
                     }
                 }
             }
+        }
+
+        // Producers publish the parked state just before their final event and
+        // heartbeat updates. Do not let a terminal resolution overtake those
+        // already-committed side effects in the event stream.
+        self.await_execution_done().await;
+        let settled = self.state();
+        if !matches!(
+            settled,
+            MissionState::CompletePendingMerge | MissionState::Attention
+        ) {
+            return Err(MissionRuntimeError::ResolveNotAllowed { state: settled });
         }
 
         let store = self.current_disposition_store().await;
@@ -780,15 +1115,7 @@ impl MissionRuntime {
         // — any error from the kernel is logged but never propagated;
         // the mission has already committed to the resolution and the
         // user must not be blocked by memory consolidation.
-        if let Some(kernel) = &self.memory {
-            if let Err(e) = kernel.on_mission_barrier(&self.mission_id, barrier).await {
-                tracing::error!(
-                    "vigla: memory barrier failed for mission {} ({:?}): {e}",
-                    self.mission_id,
-                    barrier
-                );
-            }
-        }
+        self.apply_memory_barrier(barrier).await;
 
         Ok(())
     }

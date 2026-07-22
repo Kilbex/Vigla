@@ -22,8 +22,8 @@ function quote(value) {
   return /[^A-Za-z0-9_./:@=-]/.test(value) ? JSON.stringify(value) : value;
 }
 
-function gh(args, { capture = false } = {}) {
-  if (dryRun) {
+function gh(args, { capture = false, readOnly = false } = {}) {
+  if (dryRun && !readOnly) {
     process.stdout.write(`[dry-run] gh ${args.map(quote).join(" ")}\n`);
     return "";
   }
@@ -75,6 +75,13 @@ gh([
   ...topics.flatMap((topic) => ["--add-topic", topic]),
 ]);
 
+gh([
+  "api",
+  "--method",
+  "PUT",
+  `repos/${repository}/private-vulnerability-reporting`,
+]);
+
 for (const [name, color, descriptionText] of labels) {
   gh([
     "label",
@@ -90,16 +97,20 @@ for (const [name, color, descriptionText] of labels) {
   ]);
 }
 
-const existingTitles = dryRun
-  ? new Set()
-  : new Set(
-      JSON.parse(
-        gh(
-          ["issue", "list", "--repo", repository, "--state", "all", "--limit", "200", "--json", "title"],
-          { capture: true },
-        ),
-      ).map((issue) => issue.title),
-    );
+const existingTitles = new Set(
+  gh(
+    [
+      "api",
+      "--paginate",
+      `repos/${repository}/issues?state=all&per_page=100`,
+      "--jq",
+      '.[] | select(has("pull_request") | not) | .title',
+    ],
+    { capture: true, readOnly: true },
+  )
+    .split("\n")
+    .filter(Boolean),
+);
 
 for (const issue of issueSeeds) {
   if (existingTitles.has(issue.title)) {
@@ -117,6 +128,7 @@ for (const issue of issueSeeds) {
     issue.body,
     ...issue.labels.flatMap((label) => ["--label", label]),
   ]);
+  existingTitles.add(issue.title);
 }
 
 process.stdout.write(

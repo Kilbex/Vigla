@@ -54,7 +54,12 @@
     "active": true,
     "targets": ["app", "dmg"],
     "resources": {
-      "../../target/release/mock-harness": "mock-harness"
+      "../../target/release/mock-harness": "mock-harness",
+      "../../LICENSE": "licenses/LICENSE",
+      "../../NOTICE": "licenses/NOTICE",
+      "../../THIRD_PARTY_NOTICES.md": "licenses/THIRD_PARTY_NOTICES.md",
+      "../../THIRD_PARTY_NOTICES.txt": "licenses/THIRD_PARTY_NOTICES.txt",
+      "../../third_party_licenses/": "licenses/third_party_licenses/"
     },
     "icon": [
       "icons/32x32.png",

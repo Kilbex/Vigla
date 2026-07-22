@@ -16,7 +16,7 @@
 - [ ] Business logic stays outside the Tauri host unless this PR is specifically about host integration.
 - [ ] Adapter changes are covered by fixture or parser tests when practical.
 - [ ] User-visible behavior changes are described above.
-- [ ] New dependencies are justified; `cargo deny check` and
+- [ ] New dependencies are justified; `cargo deny --all-features check` and
   `pnpm audit --audit-level low` remain clean.
 - [ ] Public contracts or persisted data changes include compatibility notes.
 - [ ] Documentation and screenshots match the behavior being shipped.

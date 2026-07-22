@@ -20,6 +20,7 @@ function arbiterDecidedEvent(
   bound: string | null,
   decisionKind: "accept" | "extend" | "scrub" | "escalate",
   seq: number,
+  reworkKind?: string,
 ): MissionEvent {
   return {
     mission_id: "mid",
@@ -28,7 +29,10 @@ function arbiterDecidedEvent(
     type: "arbiter.decided",
     payload: {
       worker_id: "mock-1",
-      decision_json: JSON.stringify({ kind: decisionKind }),
+      decision_json: JSON.stringify({
+        kind: decisionKind,
+        ...(reworkKind ? { rework_kind: { kind: reworkKind } } : {}),
+      }),
       audit_overall: decisionKind === "accept" ? 0.85 : 0.4,
       bound,
     },
@@ -98,6 +102,24 @@ describe("fetchVisibility cache key — arbiter.decided", () => {
     expect(missionEventVisibility).toHaveBeenCalledTimes(2);
   });
 
+  it("does not collapse ordinary Extend and terminal MarkUnachievable", async () => {
+    missionEventVisibility.mockResolvedValueOnce(extendVerdict);
+    expect(
+      await fetchVisibility(
+        arbiterDecidedEvent(null, "extend", 1, "revise"),
+      ),
+    ).toEqual(extendVerdict);
+
+    missionEventVisibility.mockResolvedValueOnce(scrubVerdict);
+    expect(
+      await fetchVisibility(
+        arbiterDecidedEvent(null, "extend", 2, "mark_unachievable"),
+      ),
+    ).toEqual(scrubVerdict);
+
+    expect(missionEventVisibility).toHaveBeenCalledTimes(2);
+  });
+
   it("reuses cached verdict for a repeat of the same (bound, decision) tuple", async () => {
     missionEventVisibility.mockResolvedValueOnce(acceptVerdict);
     const v1 = await fetchVisibility(arbiterDecidedEvent(null, "accept", 1));
@@ -105,6 +127,81 @@ describe("fetchVisibility cache key — arbiter.decided", () => {
     expect(v1).toEqual(acceptVerdict);
     expect(v2).toEqual(acceptVerdict);
     expect(missionEventVisibility).toHaveBeenCalledTimes(1);
+  });
+
+  it("coalesces concurrent requests for the same visibility key", async () => {
+    let resolveVisibility!: (value: EventVisibility) => void;
+    missionEventVisibility.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveVisibility = resolve;
+        }),
+    );
+
+    const first = fetchVisibility(arbiterDecidedEvent(null, "accept", 1));
+    const second = fetchVisibility(arbiterDecidedEvent(null, "accept", 2));
+
+    expect(missionEventVisibility).toHaveBeenCalledTimes(1);
+    resolveVisibility(acceptVerdict);
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      acceptVerdict,
+      acceptVerdict,
+    ]);
+  });
+});
+
+function completionVerdictEvent(
+  recommendationKind: "accept" | "extend" | "scrub",
+  seq: number,
+): MissionEvent {
+  return {
+    mission_id: "mid",
+    seq,
+    ts: `2026-05-21T00:00:0${seq}.000Z`,
+    type: "mission.completion_verdict_rendered",
+    payload: {
+      payload_json: JSON.stringify({
+        recommendation: { kind: recommendationKind },
+      }),
+    },
+  } as unknown as MissionEvent;
+}
+
+describe("fetchVisibility cache key — mission.completion_verdict_rendered", () => {
+  beforeEach(() => {
+    missionEventVisibility.mockReset();
+    _resetVisibilityCache();
+  });
+
+  it("does not collapse Accept and Scrub under the same cache key", async () => {
+    missionEventVisibility.mockResolvedValueOnce(acceptVerdict);
+    expect(await fetchVisibility(completionVerdictEvent("accept", 1))).toEqual(acceptVerdict);
+
+    missionEventVisibility.mockResolvedValueOnce(scrubVerdict);
+    expect(await fetchVisibility(completionVerdictEvent("scrub", 2))).toEqual(scrubVerdict);
+    expect(missionEventVisibility).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not collapse Accept and Extend under the same cache key", async () => {
+    missionEventVisibility.mockResolvedValueOnce(acceptVerdict);
+    expect(await fetchVisibility(completionVerdictEvent("accept", 1))).toEqual(acceptVerdict);
+
+    missionEventVisibility.mockResolvedValueOnce(escalateVerdict);
+    expect(await fetchVisibility(completionVerdictEvent("extend", 2))).toEqual(escalateVerdict);
+    expect(missionEventVisibility).toHaveBeenCalledTimes(2);
+  });
+
+  it("reuses a cached verdict for repeated recommendations of the same kind", async () => {
+    missionEventVisibility.mockResolvedValueOnce(scrubVerdict);
+    expect(await fetchVisibility(completionVerdictEvent("scrub", 1))).toEqual(scrubVerdict);
+    expect(await fetchVisibility(completionVerdictEvent("scrub", 2))).toEqual(scrubVerdict);
+    expect(missionEventVisibility).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves payload-derived visibility when policy IPC is degraded", async () => {
+    missionEventVisibility.mockRejectedValueOnce(new Error("ipc down"));
+
+    expect(await fetchVisibility(completionVerdictEvent("scrub", 1))).toEqual(scrubVerdict);
   });
 });
 
@@ -211,6 +308,79 @@ describe("fetchVisibility fallback verdict on IPC failure", () => {
       kind: "inbox",
       inbox_kind: "escalation",
       severity: "warning",
+    });
+  });
+
+  it("does not cache a degraded fallback after IPC recovers", async () => {
+    missionEventVisibility
+      .mockRejectedValueOnce(new Error("transient IPC outage"))
+      .mockResolvedValueOnce(escalateVerdict);
+    const event = arbiterDecidedEvent("quality", "escalate", 1);
+
+    expect(await fetchVisibility(event)).toEqual({
+      kind: "inbox",
+      inbox_kind: "escalation",
+      severity: "warning",
+    });
+    expect(await fetchVisibility(event)).toEqual(escalateVerdict);
+    expect(missionEventVisibility).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps a reverted mission visible when policy IPC is degraded", async () => {
+    missionEventVisibility.mockRejectedValueOnce(new Error("ipc down"));
+    const event = {
+      mission_id: "mid",
+      seq: 9,
+      ts: "2026-05-21T00:00:09.000Z",
+      type: "mission.reverted",
+      payload: {
+        restored_sha: "abc123",
+        pre_merge_tag: "vigla/revert/mid/before/main",
+      },
+    } as unknown as MissionEvent;
+
+    expect(await fetchVisibility(event)).toEqual({
+      kind: "inbox",
+      inbox_kind: "completion",
+      severity: "info",
+    });
+  });
+
+  it("keeps a quota-paused mission visible when policy IPC is degraded", async () => {
+    missionEventVisibility.mockRejectedValueOnce(new Error("ipc down"));
+    const event = {
+      mission_id: "mid",
+      seq: 10,
+      ts: "2026-05-21T00:00:10.000Z",
+      type: "mission.paused",
+      payload: {
+        vendor: "claude",
+        reset_at: "2026-05-21T01:00:00.000Z",
+        reason: "quota exhausted",
+      },
+    } as unknown as MissionEvent;
+
+    expect(await fetchVisibility(event)).toEqual({
+      kind: "inbox",
+      inbox_kind: "completion",
+      severity: "info",
+    });
+  });
+
+  it("keeps an invalid decomposition actionable when policy IPC is degraded", async () => {
+    missionEventVisibility.mockRejectedValueOnce(new Error("ipc down"));
+    const event = {
+      mission_id: "mid",
+      seq: 11,
+      ts: "2026-05-21T00:00:11.000Z",
+      type: "supervisor.decomposition_rejected",
+      payload: { reason: "empty decomposition" },
+    } as unknown as MissionEvent;
+
+    expect(await fetchVisibility(event)).toEqual({
+      kind: "inbox",
+      inbox_kind: "escalation",
+      severity: "action_required",
     });
   });
 

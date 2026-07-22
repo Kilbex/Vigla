@@ -41,6 +41,20 @@ export default function ReplayPanel() {
   const pickTokenRef = useRef(0);
   const sessions = Array.isArray(replay.sessions) ? replay.sessions : [];
   const events = Array.isArray(replay.events) ? replay.events : [];
+  const selectedSession = replay.workerId
+    ? sessions.find((session) => session.id === replay.workerId)
+    : undefined;
+
+  // The panel is normally unmounted immediately after exitReplay. Invalidate
+  // first so a page promise that resolves in the same turn cannot commit to
+  // the restored live store before React runs the unmount cleanup.
+  useEffect(
+    () => () => {
+      pickTokenRef.current += 1;
+      finish();
+    },
+    [finish],
+  );
 
   // Refresh the session list on entering replay mode.
   useEffect(() => {
@@ -103,6 +117,14 @@ export default function ReplayPanel() {
 
   const pickSession = async (worker: WorkerInfo) => {
     const myToken = ++pickTokenRef.current;
+    const isCurrentRequest = () => {
+      const current = useOpsStore.getState().replay;
+      return (
+        myToken === pickTokenRef.current &&
+        current.mode === "replay" &&
+        current.workerId === worker.id
+      );
+    };
     setErr(null);
     setLoading(true);
     begin(worker.id);
@@ -114,24 +136,27 @@ export default function ReplayPanel() {
           afterSeq,
           REPLAY_PAGE_SIZE,
         );
-        // Drop the result if a newer click superseded us mid-flight.
-        if (myToken !== pickTokenRef.current) return;
+        // Drop the result if a newer click, replay exit, or unmount
+        // superseded this request mid-flight.
+        if (!isCurrentRequest()) return;
         if (res.status !== "ok") {
           setErr(res.error);
           return;
         }
         const page = Array.isArray(res.data) ? res.data : [];
         if (page.length === 0) break;
-        append(page);
+        append(worker.id, page);
         afterSeq = page[page.length - 1].seq;
         if (page.length < REPLAY_PAGE_SIZE) break; // exhausted
       }
+    } catch (e) {
+      if (isCurrentRequest()) setErr(String(e));
     } finally {
       // Run on every termination path (clean exhaustion, error, throw).
       // Skip when a newer pick has taken over — that owner will run its
       // own finish() / setLoading(false). Otherwise the loading banner
       // would hang on "…" after an error.
-      if (myToken === pickTokenRef.current) {
+      if (isCurrentRequest()) {
         finish();
         setLoading(false);
       }
@@ -150,7 +175,14 @@ export default function ReplayPanel() {
             {replay.loading ? "…" : ""}
           </span>
         ) : null}
-        <button className="replay-btn" onClick={exit}>
+        <button
+          className="replay-btn"
+          onClick={() => {
+            pickTokenRef.current += 1;
+            setLoading(false);
+            exit();
+          }}
+        >
           ← back to live
         </button>
       </div>
@@ -159,7 +191,11 @@ export default function ReplayPanel() {
         <aside className="replay-sessions" aria-label="Past sessions">
           <div className="replay-sessions-title">PAST SESSIONS</div>
           {loading ? <div className="replay-loading">loading…</div> : null}
-          {err ? <div className="replay-error">{err}</div> : null}
+          {err ? (
+            <div className="replay-error" role="alert">
+              {err}
+            </div>
+          ) : null}
           {sessions.length === 0 && !loading ? (
             <div className="replay-empty">no sessions yet</div>
           ) : null}
@@ -181,29 +217,60 @@ export default function ReplayPanel() {
           </ul>
         </aside>
       ) : (
-        <footer className="replay-controls">
+        <footer
+          className={
+            "replay-controls" + (err ? " replay-controls--error" : "")
+          }
+          aria-label="Replay controls"
+        >
+          {err ? (
+            <div className="replay-page-error" role="alert">
+              <span className="replay-page-error__message">
+                <strong>Replay could not be loaded.</strong> {err}
+              </span>
+              {selectedSession ? (
+                <button
+                  type="button"
+                  className="replay-btn"
+                  onClick={() => pickSession(selectedSession)}
+                >
+                  Retry replay
+                </button>
+              ) : null}
+            </div>
+          ) : null}
           <button
             className="replay-btn replay-control--toggle"
             onClick={() => setPlaying(!replay.playing)}
-            disabled={total === 0}
+            disabled={replay.loading || total === 0}
           >
             {replay.playing ? "❚❚ pause" : "▶ play"}
           </button>
-          <button className="replay-btn replay-control--step" onClick={() => step(-1)}>
+          <button
+            className="replay-btn replay-control--step"
+            onClick={() => step(-1)}
+            disabled={replay.loading}
+          >
             ← step
           </button>
-          <button className="replay-btn replay-control--step" onClick={() => step(1)}>
+          <button
+            className="replay-btn replay-control--step"
+            onClick={() => step(1)}
+            disabled={replay.loading}
+          >
             step →
           </button>
           <button
             className="replay-btn replay-control--rewind"
             onClick={() => setPosition(0)}
+            disabled={replay.loading}
           >
             ⤴ rewind
           </button>
           <button
             className="replay-btn replay-control--end"
             onClick={() => setPosition(total)}
+            disabled={replay.loading}
           >
             end →
           </button>
@@ -216,6 +283,7 @@ export default function ReplayPanel() {
             style={total > 0 ? { "--_pct": `${(replay.position / total) * 100}%` } as React.CSSProperties : undefined}
             onChange={(e) => setPosition(Number(e.target.value))}
             aria-label="replay position"
+            disabled={replay.loading}
           />
           <div className="replay-speed">
             {SPEEDS.map((s) => (

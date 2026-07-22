@@ -49,6 +49,7 @@ export function createReplaySlice({ set }: StoreSliceContext): ReplayActions {
 
     exitReplay: () =>
       set((prev) => {
+        if (prev.replay.mode !== "replay") return {};
         const restored = prev.liveSnapshot ?? emptyState();
         return {
           ...restored,
@@ -58,27 +59,45 @@ export function createReplaySlice({ set }: StoreSliceContext): ReplayActions {
       }),
 
     beginReplay: (workerId) =>
-      set((prev) => ({
-        ...emptyState(),
-        selectedWorkerId: prev.selectedWorkerId,
-        replay: {
-          ...prev.replay,
-          workerId,
-          events: [],
-          position: 0,
-          playing: false,
-          loading: true,
-        },
-      })),
+      set((prev) => {
+        if (prev.replay.mode !== "replay") return {};
+        return {
+          ...emptyState(),
+          selectedWorkerId: prev.selectedWorkerId,
+          replay: {
+            ...prev.replay,
+            workerId,
+            events: [],
+            position: 0,
+            playing: false,
+            loading: true,
+          },
+        };
+      }),
 
-    appendReplayPage: (events) =>
+    appendReplayPage: (requestWorkerId, events) =>
       set((prev) => {
         if (events.length === 0) return {};
-        const nextOps = cloneOpsState(prev);
-        for (const e of events) {
-          applyEvent(nextOps, e);
+        const workerId = prev.replay.workerId;
+        if (
+          prev.replay.mode !== "replay" ||
+          workerId === null ||
+          requestWorkerId !== workerId
+        ) {
+          return {};
         }
         const allEvents = prev.replay.events.concat(events);
+        let nextOps: OpsState;
+        if (prev.replay.position === prev.replay.events.length) {
+          nextOps = cloneOpsState(prev);
+          for (const event of events) applyEvent(nextOps, event);
+        } else {
+          // A stale caller may still have moved the cursor while a page was
+          // in flight. Rebuild the complete projection instead of applying
+          // only the arriving suffix to that partial state.
+          nextOps = emptyState();
+          for (const event of allEvents) applyEvent(nextOps, event);
+        }
         return {
           ...nextOps,
           replay: {
@@ -90,18 +109,28 @@ export function createReplaySlice({ set }: StoreSliceContext): ReplayActions {
       }),
 
     finishReplay: () =>
-      set((prev) => ({
-        replay: { ...prev.replay, loading: false },
-      })),
+      set((prev) =>
+        prev.replay.mode === "replay"
+          ? { replay: { ...prev.replay, loading: false } }
+          : {},
+      ),
 
     setReplayPlaying: (playing) =>
-      set((prev) => ({ replay: { ...prev.replay, playing } })),
+      set((prev) => {
+        if (prev.replay.mode !== "replay") return {};
+        return { replay: { ...prev.replay, playing } };
+      }),
 
     setReplaySpeed: (speed) =>
-      set((prev) => ({ replay: { ...prev.replay, speed } })),
+      set((prev) =>
+        prev.replay.mode === "replay"
+          ? { replay: { ...prev.replay, speed } }
+          : {},
+      ),
 
     setReplayPosition: (position) =>
       set((prev) => {
+        if (prev.replay.mode !== "replay") return {};
         const events = prev.replay.events;
         const clamped = Math.max(0, Math.min(events.length, position));
         const nextOps = projectReplay(prev, clamped);
@@ -113,6 +142,7 @@ export function createReplaySlice({ set }: StoreSliceContext): ReplayActions {
 
     stepReplay: (delta) =>
       set((prev) => {
+        if (prev.replay.mode !== "replay") return {};
         const events = prev.replay.events;
         const target = Math.max(
           0,
@@ -127,6 +157,7 @@ export function createReplaySlice({ set }: StoreSliceContext): ReplayActions {
 
     advanceReplay: (delta) =>
       set((prev) => {
+        if (prev.replay.mode !== "replay") return {};
         const events = prev.replay.events;
         const target = Math.max(
           0,

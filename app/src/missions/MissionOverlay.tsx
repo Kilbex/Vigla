@@ -32,6 +32,7 @@ export default function MissionOverlay() {
   const mission = useMissionsStore(selectActiveMission);
   const lifecycle = useMissionsStore(selectMissionLifecycle);
   const dismissTerminalOverlay = useMissionsStore((s) => s.dismissTerminalOverlay);
+  const applyRevertOutcome = useMissionsStore((s) => s.applyRevertOutcome);
   const openMission = useSurfaceStore((s) => s.openMission);
 
   const [now, setNow] = useState(() => Date.now());
@@ -110,9 +111,13 @@ export default function MissionOverlay() {
   // workers, history surface, and Settings dialog without first
   // committing a Merge/Discard/Abort.
   const isModal = isTerminal(lifecycle);
-  const rootClassName = `mission-overlay ${
-    isModal ? "mission-overlay--modal" : "mission-overlay--anchored"
-  }`;
+  const rootClassName = [
+    "mission-overlay",
+    isModal ? "mission-overlay--modal" : "mission-overlay--anchored",
+    showPendingPlanApproval ? "mission-overlay--plan-review" : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
   const rootAriaProps = isModal
     ? {
         role: "dialog" as const,
@@ -150,6 +155,9 @@ export default function MissionOverlay() {
             mission={mission}
             elapsed={elapsed}
             onDone={dismissTerminalOverlay}
+            onReverted={(outcome) =>
+              applyRevertOutcome(mission.id, outcome)
+            }
             onViewChanges={() => {
               openMission(mission.id, null);
               dismissTerminalOverlay();

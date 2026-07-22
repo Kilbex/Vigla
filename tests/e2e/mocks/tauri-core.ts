@@ -236,7 +236,7 @@ export async function invoke<T = unknown>(
         uptime_ms: Date.now() - MOCK_BOOT_TIME,
       } as T;
     case "startup_status":
-      return true as T;
+      return { phase: "ready", error: null } as T;
     case "check_cli_auth":
       return DEFAULT_CLI_AUTH as T;
     case "list_recent_missions":

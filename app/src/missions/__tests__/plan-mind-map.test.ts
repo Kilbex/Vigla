@@ -6,6 +6,7 @@ import {
   type PlanTask,
 } from "../plan-mind-map";
 import type { EnvelopeFit, TechChoice } from "../types";
+import { PLAN_CONTENT_LIMITS } from "../plan-content";
 
 const spec = { title: "Add OAuth callback", objective: "implement /auth/callback" };
 
@@ -240,5 +241,108 @@ describe("buildMindMap", () => {
     expect(mm.nodes.filter((n) => n.type === "wave")).toHaveLength(1);
     assertNoBlankLabels(mm);
     assertNoNodeOverlap(mm);
+  });
+
+  it("sanitizes model-authored labels before layout and SVG export", () => {
+    const mm = buildMindMap(
+      {
+        title: "<b>Review</b>\u202E mission",
+        objective: "`**Keep** this safe`\u0000",
+      },
+      {
+        tasks: [
+          task(0, "<script>alert(1)</script><br>Ship &amp; verify"),
+        ],
+        generation: 0,
+      },
+    );
+
+    const root = mm.nodes.find((node) => node.id === "root");
+    const taskNode = mm.nodes.find((node) => node.id === "task-0");
+    expect(root?.data.label).toBe("Review mission");
+    expect(root?.data.objective).toBe("Keep this safe");
+    expect(taskNode?.data.label).toBe("alert(1) Ship & verify");
+    expect(taskNode?.data.tooltip).not.toContain("\u202E");
+  });
+
+  it("bounds graph work and reports omitted model-authored content", () => {
+    const tasks = Array.from(
+      { length: PLAN_CONTENT_LIMITS.tasks + 12 },
+      (_, index) => ({
+        ...task(index, `Task ${index}`, Array.from({ length: index }, (_, i) => i)),
+        scope_paths: [`src/${index}.ts`],
+      }),
+    );
+    const techStack = Array.from(
+      { length: PLAN_CONTENT_LIMITS.techItems + 5 },
+      (_, index) => ({
+        layer: `layer-${index}`,
+        choice: `choice-${index}`,
+        rationale: "generated",
+        is_new: false,
+      }),
+    );
+    const mm = buildMindMap(spec, {
+      tasks,
+      generation: 0,
+      tech_stack: techStack,
+    });
+
+    expect(mm.nodes.filter((node) => node.type === "task")).toHaveLength(
+      PLAN_CONTENT_LIMITS.tasks,
+    );
+    expect(mm.nodes.filter((node) => node.type === "tech-leaf")).toHaveLength(
+      PLAN_CONTENT_LIMITS.techItems,
+    );
+    expect(
+      mm.edges.filter((edge) => edge.data?.kind === "dependency"),
+    ).toHaveLength(PLAN_CONTENT_LIMITS.dependencyEdges);
+    expect(mm.nodes.find((node) => node.id === "root")?.data.truncation_note)
+      .toMatch(/12 tasks, 5 stack items, and .* dependencies omitted/i);
+  });
+
+  it("bounds dependency inspection and per-task scope detail", () => {
+    const scopePaths = Array.from(
+      { length: PLAN_CONTENT_LIMITS.scopePathsPerTask + 4 },
+      (_, index) => `src/path-${index}.ts`,
+    );
+    const dependencies = Array.from(
+      { length: PLAN_CONTENT_LIMITS.dependencyInputs + 9 },
+      () => 0,
+    );
+    const mm = buildMindMap(spec, {
+      tasks: [
+        { ...task(0, "Root"), scope_paths: scopePaths },
+        { ...task(1, "Leaf", dependencies), scope_paths: scopePaths },
+      ],
+      generation: 0,
+    });
+    const leaf = mm.nodes.find((node) => node.id === "task-1");
+    const notice = String(
+      mm.nodes.find((node) => node.id === "root")?.data.truncation_note,
+    );
+
+    expect(leaf?.data.tooltip).toContain(
+      `src/path-${PLAN_CONTENT_LIMITS.scopePathsPerTask - 1}.ts`,
+    );
+    expect(leaf?.data.tooltip).not.toContain(
+      `src/path-${PLAN_CONTENT_LIMITS.scopePathsPerTask}.ts`,
+    );
+    expect(notice).toContain("9 dependencies");
+    expect(notice).toContain("8 scope paths");
+  });
+
+  it("reports source counts when callers project a bounded input slice", () => {
+    const mm = buildMindMap(spec, {
+      tasks: [task(0, "Visible")],
+      source_task_count: 40,
+      generation: 0,
+      tech_stack: [],
+      source_tech_stack_count: 12,
+    });
+
+    expect(
+      mm.nodes.find((node) => node.id === "root")?.data.truncation_note,
+    ).toBe("39 tasks and 12 stack items omitted for a responsive preview.");
   });
 });

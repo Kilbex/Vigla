@@ -3,11 +3,11 @@
 
 # Vigla
 
-**Mission control for your AI coding agents.**
+**Supervise the merge. Not every terminal.**
 
-Deploy Claude Code, Codex CLI, Antigravity, and other agent CLIs as one supervised team —
-each agent in its own git worktree, every merge audited, every mission
-revertable in one click.
+Run Claude Code, Codex CLI, Antigravity, and other agent CLIs as one supervised
+team — each agent in its own git worktree, every submission audited, every
+mission reversible in one click.
 
 [Watch the replay](https://kilbex.github.io/Vigla/demo/) ·
 [Website](https://kilbex.github.io/Vigla/) ·
@@ -36,8 +36,10 @@ operations room:
   worktree; final merge records durable before/merged anchors. Reverting an
   entire mission creates a normal Git revert commit and preserves later work.
 - **Local-first.** A Rust orchestrator, Tauri shell, and SQLite event
-  store — no cloud control plane, no account. The only network traffic
-  is what your vendor CLIs already send.
+  store — no cloud control plane, account, or product telemetry. The default
+  build adds no app-originated network traffic beyond the vendor CLIs you
+  launch. An `EMBEDDINGS=1` build fetches its public embedding model into a
+  local cache on first use, then performs inference locally.
 
 > Vigla supervises the agent CLIs you already have. It does not wrap
 > LLM APIs, run its own models, or add another billing layer.
@@ -65,6 +67,12 @@ execute in parallel worktrees while the supervisor reviews each
 submission and decides **Accept / Extend / Scrub / Escalate** — inside
 your envelope, without pinging you. Live state, diffs, tests, cost, and
 raw terminals are always one click away if you *want* to watch.
+
+<div align="center">
+
+<img src="docs/media/ops-room.png" width="900" alt="Vigla Operations Room: five coding-agent workers progress in parallel while one completed submission waits in the review queue" />
+
+</div>
 
 **3 — You judge results, not keystrokes.** Finished missions land in
 your inbox with a structured verdict: audit score, test results, files
@@ -147,7 +155,8 @@ documents the independent `shasum`, `hdiutil`, and `codesign` checks.
 
 Prerequisites are the development tools listed in [Requirements](#requirements).
 Set `EMBEDDINGS=1` when running the command to include the optional embeddings
-feature.
+feature. Its first use downloads the public FastEmbed model into the per-user
+cache; if that download is unavailable, retrieval falls back to local BM25.
 
 ## Known limitations
 
@@ -168,7 +177,9 @@ Design trade-offs in the current build, not bugs:
 ## Contributing
 
 Start with [CONTRIBUTING.md](https://github.com/Kilbex/Vigla/blob/main/CONTRIBUTING.md) and
-[ARCHITECTURE.md](https://github.com/Kilbex/Vigla/blob/main/ARCHITECTURE.md). Newcomer-friendly tasks live in
+[ARCHITECTURE.md](https://github.com/Kilbex/Vigla/blob/main/ARCHITECTURE.md); project authority and maintainer
+succession are explicit in [GOVERNANCE.md](https://github.com/Kilbex/Vigla/blob/main/GOVERNANCE.md).
+Newcomer-friendly tasks live in
 [docs/GOOD_FIRST_ISSUES.md](https://github.com/Kilbex/Vigla/blob/main/docs/GOOD_FIRST_ISSUES.md) — adapter
 fixture work is the recommended first PR and is designed to land in
 under two hours.

@@ -13,8 +13,12 @@
 
 use crate::mission::MissionId;
 use std::path::{Path, PathBuf};
+use std::process::{ExitStatus, Stdio};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
 use thiserror::Error;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
 
 pub mod merge;
@@ -23,6 +27,47 @@ pub mod revert;
 
 pub use merge::{ConflictKind, ConflictPath, ConflictReport, MergeOutcome};
 pub use revert::RevertOutcome;
+
+// Repository operations may legitimately run hooks or scan large histories.
+// Five minutes keeps them finite without imposing an interactive-command
+// deadline; the aggregate cap still prevents stdout/stderr from growing
+// without bound while the child runs.
+const GIT_COMMAND_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+const MAX_GIT_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
+
+#[derive(Debug)]
+struct GitCommandOutput {
+    status: ExitStatus,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+}
+
+async fn read_bounded_git_output<R>(
+    mut reader: R,
+    stream: &'static str,
+    captured_bytes: Arc<AtomicUsize>,
+    max_output_bytes: usize,
+) -> std::io::Result<Vec<u8>>
+where
+    R: AsyncRead + Unpin,
+{
+    let mut captured = Vec::new();
+    let mut chunk = [0_u8; 8192];
+    loop {
+        let read = reader.read(&mut chunk).await?;
+        if read == 0 {
+            return Ok(captured);
+        }
+        let previous = captured_bytes.fetch_add(read, Ordering::Relaxed);
+        if previous.saturating_add(read) > max_output_bytes {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("git {stream} exceeded {max_output_bytes} bytes of captured output"),
+            ));
+        }
+        captured.extend_from_slice(&chunk[..read]);
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum MissionGitError {
@@ -543,7 +588,8 @@ impl MissionWorkspace {
     /// startup reconciliation safe after a crash between Git and SQLite.
     pub async fn final_merge_is_applied(&self, target_ref: &str) -> Result<bool, MissionGitError> {
         let branch_ref = self.validate_target_ref(target_ref).await?;
-        let before = self.tag_sha(&self.final_before_tag(target_ref)).await?;
+        let before_tag = self.final_before_tag(target_ref);
+        let before = self.tag_sha(&before_tag).await?;
         let merged = self.tag_sha(&self.final_merged_tag(target_ref)).await?;
         match (before, merged) {
             (None, None) => Ok(false),
@@ -559,11 +605,112 @@ impl MissionWorkspace {
                     })?;
                 Ok(true)
             }
-            _ => Err(MissionGitError::Refused(format!(
+            (Some(before_sha), None) => {
+                self.recover_before_only_final_merge(
+                    target_ref,
+                    &branch_ref,
+                    &before_tag,
+                    &before_sha,
+                )
+                .await
+            }
+            (None, Some(_)) => Err(MissionGitError::Refused(format!(
                 "mission {} has only one final rollback anchor; refusing to infer disposition",
                 self.mission_id
             ))),
         }
+    }
+
+    async fn recover_before_only_final_merge(
+        &self,
+        target_ref: &str,
+        branch_ref: &str,
+        before_tag: &str,
+        before_sha: &str,
+    ) -> Result<bool, MissionGitError> {
+        let target_sha = self.run_git(&["rev-parse", branch_ref]).await?;
+        if target_sha == before_sha {
+            return Ok(false);
+        }
+
+        let candidate = self
+            .first_parent_candidate_after(before_sha, &target_sha)
+            .await?;
+        let supervisor_branch = self.supervisor_branch();
+        let supervisor_ref = format!("refs/heads/{supervisor_branch}");
+        let supervisor_sha = self
+            .run_git(&["rev-parse", "--verify", &supervisor_ref])
+            .await
+            .map_err(|_| {
+                MissionGitError::Refused(format!(
+                    "mission {} has a before-only final anchor but no supervisor branch; refusing to infer disposition",
+                    self.mission_id
+                ))
+            })?;
+
+        let recoverable_merge = if let Some(candidate) = candidate.as_deref() {
+            match self.final_merge_parents(before_sha, candidate).await {
+                Ok((_, second_parent)) if second_parent == supervisor_sha => true,
+                Ok(_) | Err(MissionGitError::Refused(_)) => false,
+                Err(error) => return Err(error),
+            }
+        } else {
+            false
+        };
+
+        if let Some(candidate) = candidate.filter(|_| recoverable_merge) {
+            let before_ref = format!("refs/tags/{before_tag}");
+            let merged_ref = format!("refs/tags/{}", self.final_merged_tag(target_ref));
+            let transaction = format!(
+                "start\nverify {branch_ref} {target_sha}\nverify {before_ref} {before_sha}\nverify {supervisor_ref} {supervisor_sha}\ncreate {merged_ref} {candidate}\nprepare\ncommit\n"
+            );
+            self.run_git_with_stdin(&["update-ref", "--stdin"], transaction.as_bytes())
+                .await?;
+            return Ok(true);
+        }
+
+        // The branch moved, but not through the exact two-parent merge that
+        // Vigla started from `before_sha`. Remove only the stale tag, guarded
+        // by compare-and-swap checks on both refs, so a retry can anchor the
+        // current target without blessing or overwriting concurrent progress.
+        let before_ref = format!("refs/tags/{before_tag}");
+        let merged_ref = format!("refs/tags/{}", self.final_merged_tag(target_ref));
+        let transaction = format!(
+            "start\nverify {branch_ref} {target_sha}\nverify {supervisor_ref} {supervisor_sha}\nverify {merged_ref}\ndelete {before_ref} {before_sha}\nprepare\ncommit\n"
+        );
+        self.run_git_with_stdin(&["update-ref", "--stdin"], transaction.as_bytes())
+            .await?;
+        Ok(false)
+    }
+
+    async fn first_parent_candidate_after(
+        &self,
+        before_sha: &str,
+        target_sha: &str,
+    ) -> Result<Option<String>, MissionGitError> {
+        let range = format!("{before_sha}..{target_sha}");
+        let count = self
+            .run_git(&["rev-list", "--first-parent", "--count", &range])
+            .await?;
+        let count = count.parse::<u64>().map_err(|_| {
+            MissionGitError::Io(format!(
+                "git returned an invalid first-parent count for {range:?}: {count:?}"
+            ))
+        })?;
+        if count == 0 {
+            return Ok(None);
+        }
+        let skip = format!("--skip={}", count - 1);
+        let candidate = self
+            .run_git(&[
+                "rev-list",
+                "--first-parent",
+                "--max-count=1",
+                &skip,
+                target_sha,
+            ])
+            .await?;
+        Ok((!candidate.is_empty()).then_some(candidate))
     }
 
     async fn require_unmerged_mission_commits(
@@ -592,6 +739,16 @@ impl MissionWorkspace {
         before_sha: &str,
         merged_sha: &str,
     ) -> Result<(), MissionGitError> {
+        self.final_merge_parents(before_sha, merged_sha)
+            .await
+            .map(|_| ())
+    }
+
+    async fn final_merge_parents(
+        &self,
+        before_sha: &str,
+        merged_sha: &str,
+    ) -> Result<(String, String), MissionGitError> {
         let raw = self
             .run_git(&["rev-list", "--parents", "--max-count=1", merged_sha])
             .await?;
@@ -607,7 +764,7 @@ impl MissionWorkspace {
                 commits[1]
             )));
         }
-        Ok(())
+        Ok((commits[1].to_owned(), commits[2].to_owned()))
     }
 
     async fn commit_final_refs(
@@ -617,10 +774,24 @@ impl MissionWorkspace {
         merged_sha: &str,
         target_ref: &str,
     ) -> Result<(), MissionGitError> {
-        let before_ref = format!("refs/tags/{}", self.final_before_tag(target_ref));
+        let before_tag = self.final_before_tag(target_ref);
+        let before_ref = format!("refs/tags/{before_tag}");
         let merged_ref = format!("refs/tags/{}", self.final_merged_tag(target_ref));
+        let before_operation = match self.tag_sha(&before_tag).await? {
+            None => format!("create {before_ref} {base_sha}"),
+            Some(existing) if existing == base_sha => {
+                format!("verify {before_ref} {base_sha}")
+            }
+            Some(existing) => {
+                return Err(MissionGitError::Refused(format!(
+                    "tag {before_tag} already points to {existing}, expected {base_sha}"
+                )));
+            }
+        };
+        let (_, supervisor_sha) = self.final_merge_parents(base_sha, merged_sha).await?;
+        let supervisor_ref = format!("refs/heads/{}", self.supervisor_branch());
         let transaction = format!(
-            "start\nupdate {branch_ref} {merged_sha} {base_sha}\ncreate {before_ref} {base_sha}\ncreate {merged_ref} {merged_sha}\nprepare\ncommit\n"
+            "start\nupdate {branch_ref} {merged_sha} {base_sha}\n{before_operation}\nverify {supervisor_ref} {supervisor_sha}\ncreate {merged_ref} {merged_sha}\nprepare\ncommit\n"
         );
         self.run_git_with_stdin(&["update-ref", "--stdin"], transaction.as_bytes())
             .await
@@ -837,6 +1008,8 @@ impl MissionWorkspace {
                 }
             }
         }
+        self.delete_unmatched_before_anchors(&tag_list, &mut errors)
+            .await;
 
         let remaining_worktrees = self.run_git(&["worktree", "list", "--porcelain"]).await?;
         if remaining_worktrees.lines().any(|line| {
@@ -883,6 +1056,40 @@ impl MissionWorkspace {
         Ok(())
     }
 
+    async fn delete_unmatched_before_anchors(&self, tag_list: &str, errors: &mut Vec<String>) {
+        let before_prefix = format!("vigla/revert/{}/before/", self.mission_id);
+        let tags = tag_list.lines().collect::<std::collections::HashSet<_>>();
+        for before_tag in tag_list
+            .lines()
+            .filter(|tag| tag.starts_with(&before_prefix))
+        {
+            let target_ref = &before_tag[before_prefix.len()..];
+            let merged_tag = self.final_merged_tag(target_ref);
+            if tags.contains(merged_tag.as_str()) {
+                continue;
+            }
+
+            let before_ref = format!("refs/tags/{before_tag}");
+            let merged_ref = format!("refs/tags/{merged_tag}");
+            let before_object = match self.run_git(&["rev-parse", "--verify", &before_ref]).await {
+                Ok(object) => object,
+                Err(error) => {
+                    errors.push(format!("resolve unmatched tag {before_tag:?}: {error}"));
+                    continue;
+                }
+            };
+            let transaction = format!(
+                "start\nverify {merged_ref}\ndelete {before_ref} {before_object}\nprepare\ncommit\n"
+            );
+            if let Err(error) = self
+                .run_git_with_stdin(&["update-ref", "--stdin"], transaction.as_bytes())
+                .await
+            {
+                errors.push(format!("delete unmatched tag {before_tag:?}: {error}"));
+            }
+        }
+    }
+
     // -----------------------------------------------------------------
     // Internals
     // -----------------------------------------------------------------
@@ -903,20 +1110,57 @@ impl MissionWorkspace {
         cwd: &Path,
         args: &[&str],
     ) -> Result<String, MissionGitError> {
-        let output = Command::new("git")
-            .args(args)
-            .current_dir(cwd)
-            .output()
-            .await
-            .map_err(|e| MissionGitError::Io(e.to_string()))?;
+        Self::run_git_process_in(cwd, args).await
+    }
 
-        if !output.status.success() {
-            let code = output.status.code().unwrap_or(-1);
-            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-            return Err(MissionGitError::Git { code, stderr });
-        }
+    pub(crate) async fn run_git_process_in(
+        cwd: &Path,
+        args: &[&str],
+    ) -> Result<String, MissionGitError> {
+        let output =
+            Self::run_git_command_in(cwd, args, None, GIT_COMMAND_TIMEOUT, MAX_GIT_OUTPUT_BYTES)
+                .await?;
+        Self::checked_git_stdout(output)
+    }
 
-        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    pub(crate) async fn run_git_process_bytes_in(
+        cwd: &Path,
+        args: &[&str],
+    ) -> Result<Vec<u8>, MissionGitError> {
+        let output =
+            Self::run_git_command_in(cwd, args, None, GIT_COMMAND_TIMEOUT, MAX_GIT_OUTPUT_BYTES)
+                .await?;
+        Self::checked_git_output(output).map(|output| output.stdout)
+    }
+
+    pub(crate) fn run_git_process_bytes_sync_in(
+        cwd: &Path,
+        args: &[&str],
+    ) -> Result<Vec<u8>, MissionGitError> {
+        std::thread::scope(|scope| {
+            scope
+                .spawn(|| {
+                    tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .map_err(|error| MissionGitError::Io(error.to_string()))?
+                        .block_on(Self::run_git_process_bytes_in(cwd, args))
+                })
+                .join()
+                .map_err(|_| MissionGitError::Io("bounded git worker thread panicked".into()))?
+        })
+    }
+
+    #[cfg(test)]
+    async fn run_git_in_with_limits(
+        &self,
+        cwd: &Path,
+        args: &[&str],
+        timeout: Duration,
+        max_output_bytes: usize,
+    ) -> Result<String, MissionGitError> {
+        let output = Self::run_git_command_in(cwd, args, None, timeout, max_output_bytes).await?;
+        Self::checked_git_stdout(output)
     }
 
     async fn run_git_with_stdin(
@@ -924,34 +1168,135 @@ impl MissionWorkspace {
         args: &[&str],
         input: &[u8],
     ) -> Result<String, MissionGitError> {
-        let mut child = Command::new("git")
-            .args(args)
-            .current_dir(&self.repo_root)
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
+        let output = Self::run_git_command_in(
+            &self.repo_root,
+            args,
+            Some(input),
+            GIT_COMMAND_TIMEOUT,
+            MAX_GIT_OUTPUT_BYTES,
+        )
+        .await?;
+        Self::checked_git_stdout(output)
+    }
+
+    async fn run_git_command_in(
+        cwd: &Path,
+        args: &[&str],
+        input: Option<&[u8]>,
+        timeout: Duration,
+        max_output_bytes: usize,
+    ) -> Result<GitCommandOutput, MissionGitError> {
+        let mut command = Command::new("git");
+        command.args(args).current_dir(cwd);
+        Self::run_command_with_limits(command, input, timeout, max_output_bytes).await
+    }
+
+    async fn run_command_with_limits(
+        mut command: Command,
+        input: Option<&[u8]>,
+        timeout: Duration,
+        max_output_bytes: usize,
+    ) -> Result<GitCommandOutput, MissionGitError> {
+        command
+            .stdin(if input.is_some() {
+                Stdio::piped()
+            } else {
+                Stdio::null()
+            })
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        crate::process_tree::configure(&mut command);
+        let mut child = command
             .spawn()
             .map_err(|e| MissionGitError::Io(e.to_string()))?;
-        let mut stdin = child
-            .stdin
-            .take()
-            .ok_or_else(|| MissionGitError::Io("git stdin was not piped".into()))?;
-        stdin
-            .write_all(input)
-            .await
-            .map_err(|e| MissionGitError::Io(e.to_string()))?;
-        drop(stdin);
-        let output = child
-            .wait_with_output()
-            .await
-            .map_err(|e| MissionGitError::Io(e.to_string()))?;
+        let stdout = match child.stdout.take() {
+            Some(stdout) => stdout,
+            None => {
+                crate::process_tree::terminate_and_reap(&mut child).await;
+                return Err(MissionGitError::Io("git stdout was not piped".into()));
+            }
+        };
+        let stderr = match child.stderr.take() {
+            Some(stderr) => stderr,
+            None => {
+                crate::process_tree::terminate_and_reap(&mut child).await;
+                return Err(MissionGitError::Io("git stderr was not piped".into()));
+            }
+        };
+        let mut stdin = child.stdin.take();
+        let captured_bytes = Arc::new(AtomicUsize::new(0));
+        let operation = async {
+            let write_input = async {
+                if let Some(input) = input {
+                    let mut stdin = stdin.take().ok_or_else(|| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::BrokenPipe,
+                            "git stdin was not piped",
+                        )
+                    })?;
+                    stdin.write_all(input).await?;
+                    stdin.shutdown().await?;
+                    drop(stdin);
+                }
+                Ok::<(), std::io::Error>(())
+            };
+            // Drain both pipes before reaping the group leader. If a hook
+            // backgrounds a descendant that inherits either pipe, this join
+            // deliberately remains pending until the outer timeout kills the
+            // still-owned process group. Reaping Git first would make its
+            // numeric PGID reusable while cleanup still intends to signal it.
+            let (stdout, stderr, ()) = tokio::try_join!(
+                read_bounded_git_output(
+                    stdout,
+                    "stdout",
+                    Arc::clone(&captured_bytes),
+                    max_output_bytes,
+                ),
+                read_bounded_git_output(
+                    stderr,
+                    "stderr",
+                    Arc::clone(&captured_bytes),
+                    max_output_bytes,
+                ),
+                write_input,
+            )?;
+            let status = child.wait().await?;
+            Ok::<GitCommandOutput, std::io::Error>(GitCommandOutput {
+                status,
+                stdout,
+                stderr,
+            })
+        };
+
+        match tokio::time::timeout(timeout, operation).await {
+            Ok(Ok(output)) => Ok(output),
+            Ok(Err(error)) => {
+                crate::process_tree::terminate_and_reap(&mut child).await;
+                Err(MissionGitError::Io(error.to_string()))
+            }
+            Err(_) => {
+                crate::process_tree::terminate_and_reap(&mut child).await;
+                Err(MissionGitError::Io(format!(
+                    "git command timed out after {} ms",
+                    timeout.as_millis()
+                )))
+            }
+        }
+    }
+
+    fn checked_git_stdout(output: GitCommandOutput) -> Result<String, MissionGitError> {
+        let output = Self::checked_git_output(output)?;
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    }
+
+    fn checked_git_output(output: GitCommandOutput) -> Result<GitCommandOutput, MissionGitError> {
         if !output.status.success() {
             return Err(MissionGitError::Git {
                 code: output.status.code().unwrap_or(-1),
                 stderr: String::from_utf8_lossy(&output.stderr).trim().to_string(),
             });
         }
-        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+        Ok(output)
     }
 
     fn validate_id(kind: &str, id: &str) -> Result<(), MissionGitError> {
@@ -1028,6 +1373,65 @@ pub(crate) mod tests {
 
     pub(crate) fn ws(repo_root: PathBuf, mid: &str) -> MissionWorkspace {
         MissionWorkspace::new(repo_root, mid.into()).expect("workspace")
+    }
+
+    #[cfg(unix)]
+    fn install_pre_commit_hook(root: &Path, body: &str) {
+        use std::os::unix::fs::PermissionsExt;
+
+        let hook = root.join(".git/hooks/pre-commit");
+        let git_dir = root.join(".git").to_string_lossy().replace('\'', "'\\''");
+        std::fs::write(
+            &hook,
+            format!(
+                "#!/bin/sh\nVIGLA_TEST_GIT_DIR='{git_dir}'\necho $$ > \"$VIGLA_TEST_GIT_DIR/vigla-hook.pid\"\n{body}\n"
+            ),
+        )
+        .unwrap();
+        let mut permissions = std::fs::metadata(&hook).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(hook, permissions).unwrap();
+    }
+
+    #[cfg(unix)]
+    fn hook_pid(root: &Path, name: &str) -> i32 {
+        std::fs::read_to_string(root.join(format!(".git/{name}")))
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap()
+    }
+
+    #[cfg(unix)]
+    async fn assert_process_exited(pid: i32) {
+        let exited = tokio::time::timeout(Duration::from_secs(2), async move {
+            loop {
+                if unsafe { libc::kill(pid, 0) } != 0 {
+                    return;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await;
+        if exited.is_err() {
+            unsafe {
+                libc::kill(pid, libc::SIGKILL);
+            }
+            panic!("timed-out git hook was not terminated");
+        }
+    }
+
+    #[cfg(unix)]
+    async fn kill_test_hook_if_running(root: &Path) {
+        let pid_file = root.join(".git/vigla-hook.pid");
+        if let Ok(raw) = std::fs::read_to_string(pid_file) {
+            if let Ok(pid) = raw.trim().parse() {
+                unsafe {
+                    libc::kill(pid, libc::SIGKILL);
+                }
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
     }
 
     /// Bootstrap a sandbox repo and create the supervisor branch off
@@ -1194,6 +1598,97 @@ pub(crate) mod tests {
             1
         );
         assert!(!contents.contains("/.vigla/skills/"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn git_command_timeout_returns_within_its_configured_bound() {
+        let (_temp, root) = make_sandbox_repo();
+        let w = ws(root.clone(), "git-timeout-0001");
+        std::fs::write(root.join("blocked.txt"), "blocked\n").unwrap();
+        w.run_git_in(&root, &["add", "blocked.txt"]).await.unwrap();
+        install_pre_commit_hook(&root, "while :; do sleep 1; done");
+
+        let result = tokio::time::timeout(
+            Duration::from_secs(2),
+            w.run_git_in_with_limits(
+                &root,
+                &["commit", "-m", "must time out"],
+                Duration::from_millis(500),
+                64 * 1024,
+            ),
+        )
+        .await;
+        if result.is_err() {
+            kill_test_hook_if_running(&root).await;
+            panic!("git command ignored its configured timeout");
+        }
+        let error = result.unwrap().unwrap_err();
+        assert!(
+            matches!(&error, MissionGitError::Io(message) if message.contains("timed out")),
+            "got: {error}"
+        );
+        if root.join(".git/vigla-hook.pid").is_file() {
+            assert_process_exited(hook_pid(&root, "vigla-hook.pid")).await;
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn git_command_output_limit_kills_the_blocking_hook() {
+        let (_temp, root) = make_sandbox_repo();
+        let w = ws(root.clone(), "git-output-limit-0001");
+        std::fs::write(root.join("blocked.txt"), "blocked\n").unwrap();
+        w.run_git_in(&root, &["add", "blocked.txt"]).await.unwrap();
+        install_pre_commit_hook(
+            &root,
+            "sleep 60 &\necho $! > \"$VIGLA_TEST_GIT_DIR/vigla-hook-child.pid\"\nhead -c 4096 /dev/zero | tr '\\000' x >&2\nwait",
+        );
+
+        let result = tokio::time::timeout(
+            Duration::from_secs(10),
+            w.run_git_in_with_limits(
+                &root,
+                &["commit", "-m", "must cap output"],
+                Duration::from_secs(5),
+                1024,
+            ),
+        )
+        .await;
+        if result.is_err() {
+            kill_test_hook_if_running(&root).await;
+            panic!("git command buffered output past its configured limit");
+        }
+        let error = result.unwrap().unwrap_err();
+        assert!(
+            matches!(&error, MissionGitError::Io(message) if message.contains("exceeded 1024 bytes")),
+            "got: {error}"
+        );
+        assert_process_exited(hook_pid(&root, "vigla-hook.pid")).await;
+        assert_process_exited(hook_pid(&root, "vigla-hook-child.pid")).await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn command_output_limit_kills_descendant_after_group_leader_exits() {
+        let (_temp, root) = make_sandbox_repo();
+        let child_pid_path = root.join(".git/vigla-hook-child.pid");
+        let mut command = Command::new("/bin/sh");
+        command
+            .arg("-c")
+            .arg("(sleep 1; head -c 4096 /dev/zero | tr '\\000' x >&2; sleep 60) & echo $! > \"$VIGLA_TEST_CHILD_PID\"; exit 0")
+            .env("VIGLA_TEST_CHILD_PID", &child_pid_path)
+            .current_dir(&root);
+
+        let error =
+            MissionWorkspace::run_command_with_limits(command, None, Duration::from_secs(10), 1024)
+                .await
+                .unwrap_err();
+        assert!(
+            matches!(&error, MissionGitError::Io(message) if message.contains("exceeded 1024 bytes")),
+            "got: {error}"
+        );
+        assert_process_exited(hook_pid(&root, "vigla-hook-child.pid")).await;
     }
 
     #[tokio::test]

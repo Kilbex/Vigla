@@ -91,21 +91,29 @@ export default function EventFeed({ events }: EventFeedProps) {
     () => filtered.slice(-MAX_RENDERED_EVENTS),
     [filtered],
   );
+  const latestVisible = visible[visible.length - 1];
+  const latestVisibleKey = latestVisible
+    ? `${latestVisible.worker_id}:${latestVisible.seq}`
+    : "";
 
   // Announce settled batches, not every streaming row. Continuous output
   // resets the timer and therefore cannot flood a screen reader.
   useEffect(() => {
     const id = window.setTimeout(() => {
-      setAnnouncement(`${filtered.length} events match the current filters.`);
+      setAnnouncement(
+        `${filtered.length} events match the current filters.${
+          latestVisible ? ` Latest event #${latestVisible.seq}.` : ""
+        }`,
+      );
     }, 500);
     return () => window.clearTimeout(id);
-  }, [filtered.length]);
+  }, [filtered.length, latestVisibleKey]);
 
   useEffect(() => {
     if (follow && tailRef.current) {
       tailRef.current.scrollIntoView({ block: "end" });
     }
-  }, [filtered.length, follow]);
+  }, [filtered.length, follow, latestVisibleKey]);
 
   const toggleType = (t: EventType) => {
     setTypeFilter((prev) => {

@@ -21,7 +21,13 @@ issue.
 Please include a reproduction (a minimal note body, event fixture, or CLI
 transcript is ideal) and the impact you observed.
 
-[gh-pvr]: https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing-information-about-vulnerabilities/privately-reporting-a-security-vulnerability
+If the private-report button is unavailable, **do not post vulnerability
+details**. Open a minimal public issue titled `Private security channel
+unavailable` with no technical details so a maintainer can restore the private
+route, then wait for that route before disclosing. Private vulnerability
+reporting is a release prerequisite, not an optional repository setting.
+
+[gh-pvr]: https://github.com/Kilbex/Vigla/security/advisories/new
 
 ## Supported Versions
 
@@ -30,8 +36,14 @@ are not backported to older snapshots.
 
 ## Security model
 
-Vigla is local-first: there is no cloud control plane and no Vigla-operated
-network egress. The trust boundaries that matter are local:
+Vigla is local-first: there is no cloud control plane, Vigla-operated server,
+account, or product telemetry. The default build originates no network traffic
+of its own; installed vendor CLIs still communicate with their configured
+providers. A build made with `EMBEDDINGS=1` additionally lets FastEmbed download
+its public model artifacts into a per-user cache on first use, after which
+inference is local. Download failure disables embeddings and falls back to
+local BM25 rather than blocking a mission. The trust boundaries that matter
+most are local:
 
 - **Agent output is untrusted input.** Worker CLIs are driven by LLMs and can
   emit anything — including content that tries to steer the supervisor, and
@@ -133,11 +145,15 @@ Vigla keeps a small dependency surface and audits it in CI:
 
 - `cargo audit --deny warnings` runs on every PR and hard-fails on any advisory
   (vulnerability or unmaintained) in the dependency tree.
-- `cargo deny check` independently enforces allowed licenses, crate bans,
+- `cargo deny --all-features check` independently enforces allowed licenses, crate bans,
   advisory exceptions, and registry sources against production and development
   dependencies. The policy is reviewed in [`deny.toml`](deny.toml).
 - `pnpm audit --audit-level low` blocks known advisories in the locked frontend
   and JavaScript tooling dependency graph.
+- Gitleaks scans the complete reachable Git history in CI using a
+  checksum-pinned binary. This is a credential-pattern backstop, not a
+  substitute for reviewing author identity, captured telemetry, or image
+  metadata before publication.
 - The only tolerated advisories are the curated, individually-justified entries
   in [`.cargo/audit.toml`](.cargo/audit.toml) — known upstream issues with no
   semver-compatible fix yet, each on a platform/feature path Vigla does not

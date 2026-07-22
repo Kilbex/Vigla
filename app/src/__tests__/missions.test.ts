@@ -217,6 +217,19 @@ function aborted(seq: number, reason: string): MissionEvent {
   };
 }
 
+function reverted(seq: number, restoredSha: string): MissionEvent {
+  return {
+    mission_id: MID,
+    seq,
+    ts: TS(seq),
+    type: "mission.reverted",
+    payload: {
+      restored_sha: restoredSha,
+      pre_merge_tag: `vigla/revert/${MID}/before/main`,
+    },
+  };
+}
+
 describe("mission ingest", () => {
   let state: MissionsState;
   beforeEach(() => {
@@ -298,6 +311,24 @@ describe("mission ingest", () => {
     state = fold([created(0), decomposition(1), completed(2), mergeResolved(3, "discarded")]);
     expect(selectMissionLifecycle(state)).toBe("discarded");
     expect(selectCanStartMission(state)).toBe(true);
+  });
+
+  it("mission.reverted replaces merged with a terminal restored-SHA outcome", () => {
+    const restoredSha = "abc1234def567890";
+    state = fold([
+      created(0),
+      completed(1),
+      mergeResolved(2, "merged"),
+    ]);
+    state = { ...state, terminalOverlayDismissed: true };
+
+    state = applyMissionEvent(state, reverted(3, restoredSha));
+
+    expect(selectMissionLifecycle(state)).toBe("reverted");
+    expect(selectActiveMission(state)?.restoredSha).toBe(restoredSha);
+    expect(selectActiveMission(state)?.statusLine).toContain(restoredSha);
+    expect(selectCanStartMission(state)).toBe(true);
+    expect(state.terminalOverlayDismissed).toBe(false);
   });
 
   it("mission.aborted surfaces an aborted attention and is terminal", () => {

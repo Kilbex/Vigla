@@ -204,29 +204,6 @@ cargo clippy -p vigla-orchestrator --all-targets -- -D warnings
 \`\`\``,
   },
   {
-    title: "test: preserve replay across an unknown future event",
-    labels: ["good first issue", "help wanted", "test", "resilience"],
-    body: `## Why
-
-Persisted mission history must remain readable when a newer producer adds an event an older consumer does not surface.
-
-## Scope
-
-Add a focused repository replay regression in \`crates/orchestrator/tests/persistence.rs\`. Seed a safely representable unknown/future event at the storage boundary, replay surrounding known events, and assert ordering and known-state recovery.
-
-## Done when
-
-- [ ] The test fails if replay aborts or drops later known events.
-- [ ] Unknown data is not reinterpreted as a different event.
-- [ ] Existing schema-version behavior remains explicit.
-
-## Verify
-
-\`\`\`sh
-cargo test -p vigla-orchestrator --test persistence
-\`\`\``,
-  },
-  {
     title: "test: cap stderr noise without losing the final failure",
     labels: ["good first issue", "help wanted", "test", "resilience"],
     body: `## Why
@@ -304,7 +281,9 @@ export const labels = Object.freeze([
   ["adapter", "5319E7", "Vendor CLI adapter boundary"],
   ["accessibility", "0E8A16", "Accessibility and inclusive interaction"],
   ["blocked", "B60205", "Waiting on a named external condition"],
+  ["bug", "D73A4A", "Confirmed or reported defect"],
   ["documentation", "0075CA", "Documentation-only work"],
+  ["enhancement", "A2EEEF", "Focused product improvement"],
   ["good first issue", "7057FF", "Scoped first contribution"],
   ["help wanted", "008672", "Maintainer welcomes a contributor"],
   ["needs triage", "D4C5F9", "Not yet reproduced or classified"],

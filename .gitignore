@@ -12,6 +12,23 @@ app/dist-ssr
 app/dist-webdemo
 site/dist
 
+# Local environment and signing material
+.env
+.env.*
+**/.env
+**/.env.*
+!.env.example
+!**/.env.example
+!app/.env.webdemo
+*.key
+*.pem
+*.p12
+*.pfx
+*.mobileprovision
+*.provisionprofile
+credentials.json
+service-account*.json
+
 # TypeScript composite-build outputs (generated from vite.config.ts)
 app/tsconfig.tsbuildinfo
 app/tsconfig.node.tsbuildinfo
@@ -47,9 +64,13 @@ app/src-tauri/target
 # NOTE: this is ignored, not build output — do NOT `git clean -x` it away.
 .private/
 
-# Vigla runtime data (when implemented)
+# Vigla runtime data. Repository memory can contain prompts, source excerpts,
+# paths, and other private mission context; never offer it to Git by default.
+**/.vigla/
 *.sqlite
 *.sqlite-journal
+*.sqlite-shm
+*.sqlite-wal
 
 # Local ML model cache (fastembed / ONNX, downloaded on first embeddings run)
 **/.fastembed_cache/

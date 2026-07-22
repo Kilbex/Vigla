@@ -35,6 +35,8 @@ function statusBadgeClass(lc: MissionLifecycle): string {
   switch (lc) {
     case "merged":
       return "mission-inbox-status-badge--merged";
+    case "reverted":
+      return "mission-inbox-status-badge--discarded";
     case "discarded":
       return "mission-inbox-status-badge--discarded";
     case "aborted":

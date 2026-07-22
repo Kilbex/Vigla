@@ -48,15 +48,64 @@ const ReplayPanel = lazy(() => import("./replay/ReplayPanel"));
 const Settings = lazy(() => import("./settings/Settings"));
 const MissionOverlay = lazy(() => import("./missions/MissionOverlay"));
 
-export default function App() {
-  const ingest = useOpsStore((s) => s.ingest);
-  const ingestMissionWorker = useOpsStore((s) => s.ingestMissionEvent);
-  const ingestMission = useMissionsStore((s) => s.ingest);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [showAllEvents] = useShowAllEvents();
-  const surface = useSurface();
-  const surfaceMissionId = useSurfaceStore((s) => s.detail?.missionId ?? null);
+const EVENT_LISTENER_RETRY_DELAYS_MS = [
+  250,
+  500,
+  1_000,
+  2_000,
+  4_000,
+  5_000,
+] as const;
 
+function attachEventListenerWithRetry(
+  attach: () => Promise<() => void>,
+  onAttached?: () => void,
+): () => void {
+  let cancelled = false;
+  let unlisten: (() => void) | null = null;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
+  let retryIndex = 0;
+
+  const scheduleRetry = () => {
+    if (cancelled) return;
+    const delay = EVENT_LISTENER_RETRY_DELAYS_MS[retryIndex];
+    retryIndex = Math.min(
+      retryIndex + 1,
+      EVENT_LISTENER_RETRY_DELAYS_MS.length - 1,
+    );
+    retryTimer = window.setTimeout(() => {
+      retryTimer = null;
+      connect();
+    }, delay);
+  };
+
+  const connect = () => {
+    if (cancelled) return;
+    try {
+      attach().then(
+        (detach) => {
+          if (cancelled) detach();
+          else {
+            unlisten = detach;
+            onAttached?.();
+          }
+        },
+        () => scheduleRetry(),
+      );
+    } catch {
+      scheduleRetry();
+    }
+  };
+
+  connect();
+  return () => {
+    cancelled = true;
+    if (retryTimer !== null) window.clearTimeout(retryTimer);
+    if (unlisten) unlisten();
+  };
+}
+
+export default function App() {
   // P4 — gate the main UI on async runtime init. The host emits
   // `vigla://startup-complete` once migrations + supervisor +
   // memory registry are ready; we also poll `startup_status` on
@@ -66,8 +115,6 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false;
-    let unlistenReady: (() => void) | null = null;
-    let unlistenError: (() => void) | null = null;
     let pollTimer: ReturnType<typeof setTimeout> | null = null;
 
     const markReady = () => {
@@ -79,18 +126,14 @@ export default function App() {
       setStartupError(msg);
     };
 
-    listen<unknown>("vigla://startup-complete", () => markReady()).then(
-      (u) => {
-        if (cancelled) u();
-        else unlistenReady = u;
-      },
+    const detachReadyListener = attachEventListenerWithRetry(() =>
+      listen<unknown>("vigla://startup-complete", () => markReady()),
     );
-    listen<string>("vigla://startup-error", (e) =>
-      markError(String(e.payload ?? "unknown error")),
-    ).then((u) => {
-      if (cancelled) u();
-      else unlistenError = u;
-    });
+    const detachErrorListener = attachEventListenerWithRetry(() =>
+      listen<string>("vigla://startup-error", (e) =>
+        markError(String(e.payload ?? "unknown error")),
+      ),
+    );
 
     const poll = async () => {
       try {
@@ -115,11 +158,91 @@ export default function App() {
 
     return () => {
       cancelled = true;
-      if (unlistenReady) unlistenReady();
-      if (unlistenError) unlistenError();
+      detachReadyListener();
+      detachErrorListener();
       if (pollTimer) clearTimeout(pollTimer);
     };
   }, []);
+
+  if (startupError) {
+    return <StartupSurface error={startupError} />;
+  }
+  if (!startupReady) {
+    return <StartupSurface error={null} />;
+  }
+  return <OperationalApp />;
+}
+
+function StartupSurface({ error }: { error: string | null }) {
+  return (
+    <div className={IS_WEB_DEMO ? "web-demo-shell" : "app-shell"}>
+      <div className="app-grid" inert={IS_WEB_DEMO ? true : undefined}>
+        {error ? (
+          <div
+            className="startup-error"
+            role="alert"
+            data-testid="startup-error"
+          >
+            <h2>Vigla failed to start</h2>
+            <p>{error}</p>
+          </div>
+        ) : (
+          <div
+            className="startup-splash"
+            role="status"
+            data-testid="startup-splash"
+          >
+            Initializing Vigla…
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function OperationalApp() {
+  const ingest = useOpsStore((s) => s.ingest);
+  const ingestMissionWorker = useOpsStore((s) => s.ingestMissionEvent);
+  const ingestMission = useMissionsStore((s) => s.ingest);
+  const [workerEventsReady, setWorkerEventsReady] = useState(false);
+  const [missionEventsReady, setMissionEventsReady] = useState(false);
+
+  useEffect(() => {
+    setWorkerEventsReady(false);
+    return attachEventListenerWithRetry(
+      () =>
+        events.workerEvent.listen((e) => {
+          ingest(e.payload);
+        }),
+      () => setWorkerEventsReady(true),
+    );
+  }, [ingest]);
+
+  // MSV mission events. Separate listener so the existing
+  // worker-event pipeline stays untouched.
+  useEffect(() => {
+    setMissionEventsReady(false);
+    return attachEventListenerWithRetry(
+      () =>
+        events.missionEventDto.listen((e) => {
+          ingestMission(e.payload);
+          ingestMissionWorker(e.payload);
+        }),
+      () => setMissionEventsReady(true),
+    );
+  }, [ingestMission, ingestMissionWorker]);
+
+  if (!workerEventsReady || !missionEventsReady) {
+    return <StartupSurface error={null} />;
+  }
+  return <OperationalContents />;
+}
+
+function OperationalContents() {
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [showAllEvents] = useShowAllEvents();
+  const surface = useSurface();
+  const surfaceMissionId = useSurfaceStore((s) => s.detail?.missionId ?? null);
 
   const openSettings = useCallback(() => setSettingsOpen(true), []);
   useGlobalKeyboard({ onOpenSettings: openSettings });
@@ -135,49 +258,6 @@ export default function App() {
     showAllEvents ? "all-events" : "curated"
   }`;
 
-  useEffect(() => {
-    let unlisten: (() => void) | null = null;
-    let cancelled = false;
-    events.workerEvent
-      .listen((e) => {
-        ingest(e.payload);
-      })
-      .then((u) => {
-        if (cancelled) {
-          u();
-        } else {
-          unlisten = u;
-        }
-      });
-    return () => {
-      cancelled = true;
-      if (unlisten) unlisten();
-    };
-  }, [ingest]);
-
-  // MSV mission events. Separate listener so the existing
-  // worker-event pipeline stays untouched.
-  useEffect(() => {
-    let unlisten: (() => void) | null = null;
-    let cancelled = false;
-    events.missionEventDto
-      .listen((e) => {
-        ingestMission(e.payload);
-        ingestMissionWorker(e.payload);
-      })
-      .then((u) => {
-        if (cancelled) {
-          u();
-        } else {
-          unlisten = u;
-        }
-      });
-    return () => {
-      cancelled = true;
-      if (unlisten) unlisten();
-    };
-  }, [ingestMission, ingestMissionWorker]);
-
   return (
     <div className={IS_WEB_DEMO ? "web-demo-shell" : "app-shell"}>
       {WebDemoBanner ? (
@@ -186,25 +266,6 @@ export default function App() {
         </Suspense>
       ) : null}
       <div className="app-grid" inert={IS_WEB_DEMO ? true : undefined}>
-      {startupError && (
-        <div
-          className="startup-error"
-          role="alert"
-          data-testid="startup-error"
-        >
-          <h2>Vigla failed to start</h2>
-          <p>{startupError}</p>
-        </div>
-      )}
-      {!startupReady && !startupError && (
-        <div
-          className="startup-splash"
-          role="status"
-          data-testid="startup-splash"
-        >
-          Initializing Vigla…
-        </div>
-      )}
       <ErrorBoundary label="Command panel">
         <CommandPanel onOpenSettings={openSettings} />
       </ErrorBoundary>

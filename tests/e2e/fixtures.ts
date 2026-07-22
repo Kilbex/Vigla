@@ -23,6 +23,7 @@ export const test = base.extend<E2eFixtures>({
     await page.waitForFunction(
       () => typeof (window as any).__viglaE2e === "object",
     );
+    await expect(page.getByTestId("startup-splash")).toBeHidden();
     await use(page);
   },
 });

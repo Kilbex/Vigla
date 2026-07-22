@@ -33,3 +33,11 @@ accepted private channel for conduct reports as well as vulnerabilities.
 Include links, screenshots, dates, and a short description of what happened.
 Do not file the report as a public issue. Maintainers should avoid public
 back-and-forth unless the reporter asks for it or public action is necessary.
+
+If a report concerns the sole maintainer, or you need an independent appeal
+about conduct hosted on GitHub, use [GitHub Support's abuse-reporting
+channel](https://support.github.com/contact/report-abuse). Vigla cannot promise
+independent internal adjudication while it has one maintainer; that limitation
+and the path for adding maintainers are documented in
+[GOVERNANCE.md](GOVERNANCE.md). Do not send vulnerability details through a
+conduct report.

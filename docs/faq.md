@@ -14,6 +14,14 @@ into canonical events. Vendor credentials remain with those CLIs, and their
 network traffic still goes to their providers. Vigla adds no cloud control
 plane, product account, model proxy, or billing layer.
 
+## Does Vigla make network requests of its own?
+
+The default build does not. Vendor CLIs still contact their configured model
+providers. The optional `EMBEDDINGS=1` build downloads a public FastEmbed model
+to a per-user cache on first use and then runs that model locally; an offline or
+failed download degrades memory retrieval to BM25. Vigla has no product
+telemetry or Vigla-operated backend in either build.
+
 ## Why not use a vendor's native multi-agent app?
 
 Vendor-native tools are usually the shortest path when every worker belongs to

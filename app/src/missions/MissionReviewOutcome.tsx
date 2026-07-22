@@ -41,17 +41,27 @@ export default function MissionReviewOutcome({
   const runResolve = async (kind: "merge" | "discard") => {
     setSubmitting(kind);
     setError(null);
-    const result = await commands.resolveMission({ type: kind });
-    setSubmitting(null);
-    if (result.status === "error") {
-      if (isAlreadyTerminalResolveError(result.error)) {
-        onResolved?.();
+    try {
+      const result = await commands.resolveMission({ type: kind });
+      if (result.status === "error") {
+        if (isAlreadyTerminalResolveError(result.error)) {
+          onResolved?.();
+          return;
+        }
+        setError(result.error);
         return;
       }
-      setError(result.error);
-      return;
+      onResolved?.();
+    } catch (caught) {
+      // The binding re-throws on an Error-instance rejection (IPC failure,
+      // serialization mismatch). Without this catch, setSubmitting(null)
+      // in `finally` never runs and both Merge/Discard buttons stay
+      // permanently disabled with no error surfaced. Mirrors the guard on
+      // MissionOverlay.handleAbort and PlanRejectForm.submit.
+      setError(caught instanceof Error ? caught.message : String(caught));
+    } finally {
+      setSubmitting(null);
     }
-    onResolved?.();
   };
 
   const disabled = submitting !== null;

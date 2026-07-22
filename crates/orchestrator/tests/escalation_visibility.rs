@@ -72,6 +72,8 @@ fn happy_path_mission_emits_only_one_terminal_inbox_event() {
             worker_id: "w-1".into(),
             task_index: 0,
             task_title: "Step 1".into(),
+            vendor: None,
+            model: None,
         },
         MissionEventKind::WorkerProgress {
             worker_id: "w-1".into(),
@@ -105,6 +107,8 @@ fn happy_path_mission_emits_only_one_terminal_inbox_event() {
             worker_id: "w-2".into(),
             task_index: 1,
             task_title: "Step 2".into(),
+            vendor: None,
+            model: None,
         },
         MissionEventKind::WorkerResultSubmitted {
             worker_id: "w-2".into(),
@@ -162,6 +166,8 @@ fn quality_escalation_emits_one_action_required_card() {
             worker_id: "w-1".into(),
             task_index: 0,
             task_title: "Step".into(),
+            vendor: None,
+            model: None,
         },
         MissionEventKind::WorkerResultSubmitted {
             worker_id: "w-1".into(),

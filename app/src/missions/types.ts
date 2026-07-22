@@ -25,6 +25,7 @@ export type MissionLifecycle =
   | "attention"
   | "complete_pending_merge"
   | "merged"
+  | "reverted"
   | "discarded"
   // Historical persisted-event compatibility. Current runtimes reject Extend.
   | "extended"
@@ -123,6 +124,8 @@ export interface ActiveMission {
   completionSummary: string | null;
   filesChanged: number;
   resolution: MergeResolution | null;
+  /** Revert commit emitted by `mission.reverted`; null before rollback. */
+  restoredSha?: string | null;
   abortReason: string | null;
   attention: AttentionItem[];
   /**
@@ -235,6 +238,7 @@ export const emptyMissionsState = (): MissionsState => ({
 export function isTerminal(lifecycle: MissionLifecycle): boolean {
   return (
     lifecycle === "merged" ||
+    lifecycle === "reverted" ||
     lifecycle === "discarded" ||
     lifecycle === "extended" ||
     lifecycle === "aborted"

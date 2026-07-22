@@ -142,6 +142,7 @@ describe("MissionOverlay modal vs. anchored", () => {
     const root = rootEl(container);
 
     expect(root.classList.contains("mission-overlay--anchored")).toBe(true);
+    expect(root.classList.contains("mission-overlay--plan-review")).toBe(false);
     expect(root.classList.contains("mission-overlay--modal")).toBe(false);
     expect(container.querySelector(".mission-overlay__backdrop")).toBeNull();
     expect(root.getAttribute("aria-modal")).toBeNull();
@@ -161,6 +162,7 @@ describe("MissionOverlay modal vs. anchored", () => {
     const root = rootEl(container);
 
     expect(root.classList.contains("mission-overlay--anchored")).toBe(true);
+    expect(root.classList.contains("mission-overlay--plan-review")).toBe(false);
     expect(root.classList.contains("mission-overlay--modal")).toBe(false);
     expect(container.querySelector(".mission-overlay__backdrop")).toBeNull();
     expect(root.getAttribute("aria-modal")).toBeNull();
@@ -178,6 +180,7 @@ describe("MissionOverlay modal vs. anchored", () => {
     const root = rootEl(container);
 
     expect(root.classList.contains("mission-overlay--anchored")).toBe(true);
+    expect(root.classList.contains("mission-overlay--plan-review")).toBe(true);
     expect(root.classList.contains("mission-overlay--modal")).toBe(false);
     expect(container.querySelector(".mission-overlay__backdrop")).toBeNull();
     expect(root.getAttribute("aria-modal")).toBeNull();

@@ -366,85 +366,83 @@ fn render_arg(
     arg: &str,
     vars: CommandVars<'_>,
 ) -> Result<String, VendorProfileError> {
-    let mut out = arg.to_string();
-    replace(&mut out, "${prompt}", vars.prompt);
-    replace(
-        &mut out,
-        WORKER_PLAYBOOK_PLACEHOLDER,
-        supervisor_adapter::WORKER_PLAYBOOK,
-    );
-    replace(
-        &mut out,
-        WORKER_PROMPT_PLACEHOLDER,
-        &format!(
-            "{}\n\n---\n\n{}",
-            supervisor_adapter::WORKER_PLAYBOOK,
-            vars.prompt
-        ),
-    );
-    replace(
-        &mut out,
-        SUPERVISOR_PLAYBOOK_PLACEHOLDER,
-        supervisor_adapter::PLAYBOOK,
-    );
-
-    if out.contains("${cwd}") {
-        let cwd = vars
-            .cwd
-            .ok_or_else(|| VendorProfileError::MissingVariable {
+    // Expand only placeholders found in the profile template. Appended values
+    // are never scanned again, so prompt/cwd text such as `${cwd}` remains
+    // literal instead of becoming a second-order template substitution.
+    let mut out = String::with_capacity(arg.len());
+    let mut remaining = arg;
+    while let Some(start) = remaining.find("${") {
+        out.push_str(&remaining[..start]);
+        let placeholder_and_tail = &remaining[start..];
+        let Some(end) = placeholder_and_tail.find('}') else {
+            return Err(VendorProfileError::UnknownPlaceholder {
                 profile: profile.id.as_str().to_string(),
                 role,
-                var: "${cwd}",
-            })?;
-        replace(&mut out, "${cwd}", &cwd.to_string_lossy());
-    }
-    if out.contains("${max_turns}") {
-        let max_turns = vars
-            .max_turns
-            .ok_or_else(|| VendorProfileError::MissingVariable {
-                profile: profile.id.as_str().to_string(),
-                role,
-                var: "${max_turns}",
-            })?
-            .to_string();
-        replace(&mut out, "${max_turns}", &max_turns);
-    }
-    if out.contains("${supervisor_disallowed_tools}") {
-        let disallowed = vars.supervisor_disallowed_tools.ok_or_else(|| {
-            VendorProfileError::MissingVariable {
-                profile: profile.id.as_str().to_string(),
-                role,
-                var: "${supervisor_disallowed_tools}",
+                arg: arg.to_string(),
+            });
+        };
+        let placeholder = &placeholder_and_tail[..=end];
+        match placeholder {
+            "${prompt}" => out.push_str(vars.prompt),
+            WORKER_PLAYBOOK_PLACEHOLDER => out.push_str(supervisor_adapter::WORKER_PLAYBOOK),
+            WORKER_PROMPT_PLACEHOLDER => {
+                out.push_str(supervisor_adapter::WORKER_PLAYBOOK);
+                out.push_str("\n\n---\n\n");
+                out.push_str(vars.prompt);
             }
-        })?;
-        replace(&mut out, "${supervisor_disallowed_tools}", disallowed);
+            SUPERVISOR_PLAYBOOK_PLACEHOLDER => out.push_str(supervisor_adapter::PLAYBOOK),
+            "${cwd}" => {
+                let cwd = vars
+                    .cwd
+                    .ok_or_else(|| VendorProfileError::MissingVariable {
+                        profile: profile.id.as_str().to_string(),
+                        role,
+                        var: "${cwd}",
+                    })?;
+                out.push_str(&cwd.to_string_lossy());
+            }
+            "${max_turns}" => {
+                let max_turns =
+                    vars.max_turns
+                        .ok_or_else(|| VendorProfileError::MissingVariable {
+                            profile: profile.id.as_str().to_string(),
+                            role,
+                            var: "${max_turns}",
+                        })?;
+                out.push_str(&max_turns.to_string());
+            }
+            "${supervisor_disallowed_tools}" => {
+                let disallowed = vars.supervisor_disallowed_tools.ok_or_else(|| {
+                    VendorProfileError::MissingVariable {
+                        profile: profile.id.as_str().to_string(),
+                        role,
+                        var: "${supervisor_disallowed_tools}",
+                    }
+                })?;
+                out.push_str(disallowed);
+            }
+            "${supervisor_max_turns}" => {
+                let max_turns = vars.supervisor_max_turns.ok_or_else(|| {
+                    VendorProfileError::MissingVariable {
+                        profile: profile.id.as_str().to_string(),
+                        role,
+                        var: "${supervisor_max_turns}",
+                    }
+                })?;
+                out.push_str(&max_turns.to_string());
+            }
+            _ => {
+                return Err(VendorProfileError::UnknownPlaceholder {
+                    profile: profile.id.as_str().to_string(),
+                    role,
+                    arg: arg.to_string(),
+                });
+            }
+        }
+        remaining = &placeholder_and_tail[end + 1..];
     }
-    if out.contains("${supervisor_max_turns}") {
-        let max_turns = vars
-            .supervisor_max_turns
-            .ok_or_else(|| VendorProfileError::MissingVariable {
-                profile: profile.id.as_str().to_string(),
-                role,
-                var: "${supervisor_max_turns}",
-            })?
-            .to_string();
-        replace(&mut out, "${supervisor_max_turns}", &max_turns);
-    }
-
-    if out.contains("${") {
-        return Err(VendorProfileError::UnknownPlaceholder {
-            profile: profile.id.as_str().to_string(),
-            role,
-            arg: arg.to_string(),
-        });
-    }
+    out.push_str(remaining);
     Ok(out)
-}
-
-fn replace(target: &mut String, needle: &str, replacement: &str) {
-    if target.contains(needle) {
-        *target = target.replace(needle, replacement);
-    }
 }
 
 #[cfg(test)]
@@ -639,6 +637,55 @@ mod tests {
         assert!(args.contains(&"--model".to_string()));
         assert!(args.contains(&"gpt-5.2".to_string()));
         assert_eq!(args.last().map(String::as_str), Some("ship the fix"));
+    }
+
+    #[test]
+    fn prompt_containing_dollar_brace_is_substituted_verbatim() {
+        let profile = profile_for_vendor(WorkerVendor::Claude);
+        let prompt = "Keep ${cwd}, ${max_turns}, and ${supervisor_max_turns} verbatim";
+        let args = render_command_args(
+            profile,
+            CommandRole::MissionWorker,
+            CommandVars::new(prompt),
+        )
+        .expect("prompt placeholders are user text, not template variables");
+        assert_eq!(args.last().map(String::as_str), Some(prompt));
+    }
+
+    #[test]
+    fn prompt_placeholder_is_not_reinterpreted_when_template_also_uses_it() {
+        let profile = profile_for_vendor(WorkerVendor::Codex);
+        let cwd = Path::new("/tmp/template-cwd");
+        let prompt = "Explain why ${cwd} must remain literal in this prompt";
+
+        let args = render_command_args(
+            profile,
+            CommandRole::MissionWorker,
+            CommandVars::new(prompt).cwd(cwd),
+        )
+        .expect("render command");
+
+        assert!(args.iter().any(|arg| arg == "/tmp/template-cwd"));
+        assert!(args.last().expect("prompt arg").ends_with(prompt));
+    }
+
+    #[test]
+    fn unknown_template_placeholder_still_rejected() {
+        let mut profile = profile_for_vendor(WorkerVendor::Claude).clone();
+        profile.commands.mission_worker.args = vec!["--flag=${bogus_placeholder}".into()];
+
+        let error = render_command_args(
+            &profile,
+            CommandRole::MissionWorker,
+            CommandVars::new("prompt"),
+        )
+        .expect_err("unknown template placeholder must fail");
+
+        assert!(matches!(
+            error,
+            VendorProfileError::UnknownPlaceholder { arg, .. }
+                if arg == "--flag=${bogus_placeholder}"
+        ));
     }
 
     #[test]

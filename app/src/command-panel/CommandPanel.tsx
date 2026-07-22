@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { commands, type HealthDto } from "../bindings";
 import { requiresAction } from "../inbox/types";
@@ -30,6 +30,8 @@ interface CommandPanelProps {
 export default function CommandPanel({ onOpenSettings }: CommandPanelProps) {
   const [health, setHealth] = useState<HealthDto | null>(null);
   const [healthErr, setHealthErr] = useState<string | null>(null);
+  const [healthObservedAt, setHealthObservedAt] = useState(() => Date.now());
+  const [clock, setClock] = useState(() => Date.now());
   // useShallow: skip the re-render when no displayed counter changed
   // (e.g. selectWorker, exitReplay — store mutations that don't touch
   // any of these five values).
@@ -76,24 +78,6 @@ export default function CommandPanel({ onOpenSettings }: CommandPanelProps) {
     });
   };
 
-  const [eventsPulse, setEventsPulse] = useState(false);
-  const lastEventsRef = useRef(counters.totalEvents);
-  const lastPulseAtRef = useRef(0);
-
-  useEffect(() => {
-    if (counters.totalEvents === lastEventsRef.current) return;
-    const now = Date.now();
-    const prev = lastEventsRef.current;
-    lastEventsRef.current = counters.totalEvents;
-    if (now - lastPulseAtRef.current > 500) {
-      lastPulseAtRef.current = now;
-      setEventsPulse(true);
-      const id = window.setTimeout(() => setEventsPulse(false), 120);
-      return () => window.clearTimeout(id);
-    }
-    void prev;
-  }, [counters.totalEvents]);
-
   // Event rate sliding history (30 intervals of 2 seconds = last 60 seconds)
   const [eventHistory, setEventHistory] = useState<number[]>(() => Array(30).fill(0));
   const totalEvents = counters.totalEvents;
@@ -114,14 +98,16 @@ export default function CommandPanel({ onOpenSettings }: CommandPanelProps) {
     return () => window.clearInterval(id);
   }, []);
 
-  const maxVal = Math.max(...eventHistory, 1);
-  const points = eventHistory
-    .map((val, idx) => {
-      const x = (idx / (eventHistory.length - 1)) * 40; // 40px wide sparkline
-      const y = 10 - (val / maxVal) * 8; // 10px high range, inset
-      return `${x},${y}`;
-    })
-    .join(" ");
+  const points = useMemo(() => {
+    const maxVal = Math.max(...eventHistory, 1);
+    return eventHistory
+      .map((val, idx) => {
+        const x = (idx / (eventHistory.length - 1)) * 40;
+        const y = 10 - (val / maxVal) * 8;
+        return `${x},${y}`;
+      })
+      .join(" ");
+  }, [eventHistory]);
 
   useEffect(() => {
     let cancelled = false;
@@ -131,127 +117,168 @@ export default function CommandPanel({ onOpenSettings }: CommandPanelProps) {
         .then((h) => {
           if (cancelled) return;
           setHealth(h);
+          setHealthObservedAt(Date.now());
           setHealthErr(null);
         })
         .catch((e) => {
           if (cancelled) return;
+          setHealth(null);
           setHealthErr(String(e));
         });
     };
     tick();
-    const id = window.setInterval(tick, 1000);
+    // Health/version are a coarse runtime signal. Poll the backend every ten
+    // seconds and advance uptime locally instead of crossing IPC every second.
+    const id = window.setInterval(tick, 10_000);
     return () => {
       cancelled = true;
       window.clearInterval(id);
     };
   }, []);
 
+  useEffect(() => {
+    if (!health) return;
+    setClock(Date.now());
+    const id = window.setInterval(() => setClock(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [health]);
+
+  const displayedUptime = health
+    ? health.uptime_ms + Math.max(0, clock - healthObservedAt)
+    : null;
+  const attentionLabel =
+    attentionCount === 1
+      ? "1 item needs input"
+      : `${attentionCount} items need input`;
+
   return (
     <header className="command-panel" data-tauri-drag-region>
-      <svg
-        className="command-panel-reticle"
-        width="14"
-        height="14"
-        viewBox="0 0 14 14"
-        aria-hidden
-        focusable="false"
-      >
-        <circle cx="7" cy="7" r="5.5" fill="none" stroke="currentColor" strokeWidth="0.8" opacity="0.7" />
-        <line x1="7" y1="1" x2="7" y2="3" stroke="currentColor" strokeWidth="0.8" />
-        <line x1="7" y1="11" x2="7" y2="13" stroke="currentColor" strokeWidth="0.8" />
-        <line x1="1" y1="7" x2="3" y2="7" stroke="currentColor" strokeWidth="0.8" />
-        <line x1="11" y1="7" x2="13" y2="7" stroke="currentColor" strokeWidth="0.8" />
-        <circle cx="7" cy="7" r="1.2" fill="currentColor" />
-      </svg>
-      <span className="brand">Vigla</span>
-      <span className="sep">·</span>
-      <span className="meta">
-        active <strong>{counters.active}</strong>
-        <span className="meta-faint"> / {counters.total}</span>
-      </span>
-      <span className="sep">·</span>
-      <span className="meta command-panel-events-meta">
-        <div className="command-panel-sparkline-wrapper">
-          <svg
-            className="command-panel-sparkline"
-            width="40"
-            height="12"
-            viewBox="0 0 40 12"
-            aria-hidden
-          >
-            <polyline
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.2"
-              points={points}
-            />
-          </svg>
-        </div>
-        events <strong className={eventsPulse ? "hud-chroma" : ""}>{counters.totalEvents}</strong>
-      </span>
-      <span className="sep">·</span>
-      <span className="meta">
-        spend <strong>${counters.totalSpendUsd.toFixed(3)}</strong>
-      </span>
-      {attentionCount > 0 ? (
-        <>
-          <span className="sep">·</span>
+      <div className="command-panel__identity" data-tauri-drag-region>
+        <svg
+          className="command-panel-reticle"
+          width="14"
+          height="14"
+          viewBox="0 0 14 14"
+          aria-hidden
+          focusable="false"
+        >
+          <circle
+            cx="7"
+            cy="7"
+            r="5.5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="0.8"
+            opacity="0.7"
+          />
+          <path
+            d="M7 1v2M7 11v2M1 7h2M11 7h2"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="0.8"
+          />
+          <circle cx="7" cy="7" r="1.2" fill="currentColor" />
+        </svg>
+        <span className="brand">Vigla</span>
+        {isReplay ? (
           <button
-            type="button"
-            className="meta meta-needs-input"
-            onClick={focusFirstNeedsInput}
-            aria-label={`${attentionCount} item${attentionCount === 1 ? "" : "s"} need input`}
-            title="Open Inbox attention queue"
+            className="command-panel-history command-panel-channel command-panel-channel--replay"
+            onClick={exitReplay}
+            title="Return to the live event stream"
+            aria-label="History mode active; return to live"
           >
-            ⚠ {attentionCount} needs input
+            <span className="command-panel-channel__dot" aria-hidden />
+            <span className="command-panel-channel__label">History mode</span>
           </button>
-        </>
-      ) : null}
-      <span className="sep">·</span>
-      <span className="meta">
-        uptime{" "}
-        {health ? (
-          formatUptime(health.uptime_ms)
-        ) : healthErr ? (
-          <span className="mission-review__faint" title={healthErr}>
-            n/a
-          </span>
         ) : (
-          <span className="hud-skeleton">···</span>
+          <span
+            className="command-panel-history command-panel-channel command-panel-channel--live"
+            title="Live event stream active"
+            aria-label="Live event stream active"
+            role="status"
+          >
+            <span className="command-panel-channel__dot" aria-hidden />
+            <span className="command-panel-channel__label">Live</span>
+          </span>
         )}
-      </span>
-      <span className="meta-spacer" />
-      <MemoryDrawerButton />
-      <PinNoteButton />
-      <button
-        className="command-panel-history-surface"
-        onClick={() => setSurface("history")}
-        title="Open recent mission history"
-        aria-label="Open mission history"
+      </div>
+
+      <div
+        className="command-panel__telemetry"
+        role="group"
+        aria-label="Mission telemetry"
       >
-        History
-      </button>
-      {isReplay ? (
-        <button
-          className="command-panel-history command-panel-channel command-panel-channel--replay"
-          onClick={exitReplay}
-          title="Return to the live event stream"
-          aria-label="History mode active; click to return to live"
-        >
-          <span className="command-panel-channel__dot" aria-hidden />
-          <span className="command-panel-channel__label">History mode</span>
-        </button>
-      ) : (
-        <span
-          className="command-panel-history command-panel-channel command-panel-channel--live"
-          title="Live event stream active"
-          aria-label="Live event stream active"
-          role="status"
-        >
-          <span className="command-panel-channel__dot" aria-hidden />
-          <span className="command-panel-channel__label">Live</span>
+        <span className="meta command-panel-metric command-panel-metric--active">
+          <span className="command-panel-metric__label">Active</span>
+          <strong>{counters.active}</strong>
+          <span className="meta-faint">/ {counters.total}</span>
         </span>
-      )}
+        <span className="meta command-panel-metric command-panel-events-meta">
+          <span className="command-panel-sparkline-wrapper">
+            <svg
+              className="command-panel-sparkline"
+              width="40"
+              height="12"
+              viewBox="0 0 40 12"
+              aria-hidden
+            >
+              <polyline
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.2"
+                points={points}
+              />
+            </svg>
+          </span>
+          <span className="command-panel-metric__label">Events</span>
+          <strong>{counters.totalEvents}</strong>
+        </span>
+        <span className="meta command-panel-metric command-panel-metric--spend">
+          <span className="command-panel-metric__label">Spend</span>
+          <strong>${counters.totalSpendUsd.toFixed(3)}</strong>
+        </span>
+        <span className="meta command-panel-metric command-panel-metric--uptime">
+          <span className="command-panel-metric__label">Uptime</span>
+          {displayedUptime !== null ? (
+            <strong>{formatUptime(displayedUptime)}</strong>
+          ) : healthErr ? (
+            <span className="mission-review__faint" title={healthErr}>
+              n/a
+            </span>
+          ) : (
+            <span className="hud-skeleton">···</span>
+          )}
+        </span>
+      </div>
+
+      {attentionCount > 0 ? (
+        <button
+          type="button"
+          className="meta meta-needs-input"
+          onClick={focusFirstNeedsInput}
+          aria-label={attentionLabel}
+          title="Open items needing input"
+        >
+          <AttentionIcon />
+          <span>{attentionLabel}</span>
+        </button>
+      ) : null}
+
+      <span className="meta-spacer" data-tauri-drag-region />
+
+      <div className="command-panel__actions">
+        <MemoryDrawerButton />
+        <PinNoteButton />
+        <button
+          className="command-panel-history-surface"
+          onClick={() => setSurface("history")}
+          title="Open recent mission history"
+          aria-label="Open mission history"
+        >
+          History
+        </button>
+      </div>
+
       <button
         type="button"
         className={
@@ -264,7 +291,7 @@ export default function CommandPanel({ onOpenSettings }: CommandPanelProps) {
         disabled={!onOpenSettings}
       >
         <span className="command-panel-version__dot" aria-hidden />
-        version{" "}
+        <span aria-hidden>v</span>
         {health ? (
           health.version
         ) : healthErr ? (
@@ -276,5 +303,19 @@ export default function CommandPanel({ onOpenSettings }: CommandPanelProps) {
         )}
       </button>
     </header>
+  );
+}
+
+function AttentionIcon() {
+  return (
+    <svg
+      className="command-panel-attention-icon"
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      focusable="false"
+    >
+      <path d="M8 2.2 14.2 13H1.8L8 2.2Z" />
+      <path d="M8 5.8v3.5M8 11.4v.1" />
+    </svg>
   );
 }

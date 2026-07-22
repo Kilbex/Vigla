@@ -7,6 +7,10 @@ import { render, screen, act } from "@testing-library/react";
 
 vi.mock("../bindings", () => ({
   commands: {
+    startupStatus: vi.fn().mockResolvedValue({
+      phase: "ready",
+      error: null,
+    }),
     healthCheck: vi.fn().mockResolvedValue({
       version: "0.0.1",
       uptime_ms: 0,

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import {
   useWorkerIdentity,
   __resetWorkerIdentityCache,
@@ -35,8 +35,16 @@ function workerInfo(over: { vendor?: string; model?: string | null } = {}) {
   };
 }
 
-function Probe({ id, tag = "probe" }: { id: string; tag?: string }) {
-  const identity = useWorkerIdentity(id);
+function Probe({
+  id,
+  tag = "probe",
+  enabled = true,
+}: {
+  id: string;
+  tag?: string;
+  enabled?: boolean;
+}) {
+  const identity = useWorkerIdentity(id, enabled);
   return (
     <div data-testid={tag}>
       {identity
@@ -52,6 +60,21 @@ beforeEach(() => {
 });
 
 describe("useWorkerIdentity", () => {
+  it("does not request WorkerInfo when event identity is authoritative", async () => {
+    getWorkerInfo.mockResolvedValueOnce({
+      status: "ok",
+      data: workerInfo({ vendor: "claude", model: "stale-model" }),
+    });
+    render(<Probe id="mock-1" enabled={false} />);
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(getWorkerInfo).not.toHaveBeenCalled();
+    expect(screen.getByTestId("probe")).toHaveTextContent("pending");
+  });
+
   it("returns null until the lookup resolves, then the cached identity", async () => {
     getWorkerInfo.mockResolvedValueOnce({
       status: "ok",
@@ -92,21 +115,129 @@ describe("useWorkerIdentity", () => {
     expect(getWorkerInfo).toHaveBeenCalledTimes(1);
   });
 
-  it("treats a rejected/erroring lookup as 'missing' and stops re-fetching", async () => {
-    getWorkerInfo.mockRejectedValueOnce(new Error("boom"));
+  it("retries a transport failure after a fixed delay, then caches success", async () => {
+    vi.useFakeTimers();
+    getWorkerInfo
+      .mockRejectedValueOnce(new Error("transport down"))
+      .mockResolvedValueOnce({
+        status: "ok",
+        data: workerInfo({ vendor: "codex", model: "gpt-recovered" }),
+      });
 
-    const first = render(<Probe id="w-c" tag="first" />);
-    await waitFor(() => {
-      // Stays "pending" → null because the lookup never resolved into
-      // an identity; the cache entry is "missing".
-      expect(screen.getByTestId("first").textContent).toBe("pending");
+    try {
+      render(<Probe id="w-c" />);
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(getWorkerInfo).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId("probe")).toHaveTextContent("pending");
+
+      await act(async () => {
+        vi.advanceTimersByTime(999);
+        await Promise.resolve();
+      });
+      expect(getWorkerInfo).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        vi.advanceTimersByTime(1);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(getWorkerInfo).toHaveBeenCalledTimes(2);
+      expect(screen.getByTestId("probe")).toHaveTextContent(
+        "vendor=codex model=gpt-recovered",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("limits resolved command errors before entering the failure cooldown", async () => {
+    vi.useFakeTimers();
+    getWorkerInfo.mockResolvedValue({
+      status: "error",
+      error: "repository unavailable",
     });
-    first.unmount();
 
-    // A second consumer doesn't trigger another fetch.
-    render(<Probe id="w-c" tag="second" />);
-    expect(screen.getByTestId("second").textContent).toBe("pending");
-    expect(getWorkerInfo).toHaveBeenCalledTimes(1);
+    try {
+      render(<Probe id="w-offline" />);
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(getWorkerInfo).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        vi.advanceTimersByTime(1_000);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(getWorkerInfo).toHaveBeenCalledTimes(2);
+
+      await act(async () => {
+        vi.advanceTimersByTime(5_000);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(getWorkerInfo).toHaveBeenCalledTimes(3);
+
+      await act(async () => {
+        vi.advanceTimersByTime(29_999);
+        await Promise.resolve();
+      });
+      expect(getWorkerInfo).toHaveBeenCalledTimes(3);
+
+      await act(async () => {
+        vi.advanceTimersByTime(1);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(getWorkerInfo).toHaveBeenCalledTimes(4);
+    } finally {
+      __resetWorkerIdentityCache();
+      vi.useRealTimers();
+    }
+  });
+
+  it("expires a missing lookup before trying the authoritative source again", async () => {
+    vi.useFakeTimers();
+    getWorkerInfo
+      .mockResolvedValueOnce({ status: "ok", data: null })
+      .mockResolvedValueOnce({
+        status: "ok",
+        data: workerInfo({ vendor: "gemini", model: "gemini-late" }),
+      });
+
+    try {
+      render(<Probe id="w-late" />);
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(getWorkerInfo).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        vi.advanceTimersByTime(9_999);
+        await Promise.resolve();
+      });
+      expect(getWorkerInfo).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        vi.advanceTimersByTime(1);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(getWorkerInfo).toHaveBeenCalledTimes(2);
+      expect(screen.getByTestId("probe")).toHaveTextContent(
+        "vendor=gemini model=gemini-late",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("shares one fetch across multiple consumers of the same workerId", async () => {

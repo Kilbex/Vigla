@@ -25,3 +25,7 @@ Initial public release candidate.
   scoring, promotion policy, and vendor-native file rendering.
 - Operations Room UI: station canvas, worker drawer, review queue,
   mission inbox, history, and replay.
+- Plan review workspace: a wider, accessible execution map, four-bound envelope
+  readout, progressive plan details, and clearer approval controls.
+- Defensive plan projection: sanitized model-authored labels and bounded graph
+  size before layout.

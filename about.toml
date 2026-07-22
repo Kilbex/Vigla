@@ -1,0 +1,37 @@
+# License-selection policy for the generated Rust dependency notice.
+#
+# Prefer a complete, attribution-light branch (Zlib/Apache/BSD before MIT)
+# when a crate offers a choice; this avoids generic MIT templates when an
+# exact alternate notice is available. `cargo-about --fail` still rejects any
+# expression that this explicit allow-list cannot satisfy.
+accepted = [
+  "Apache-2.0 WITH LLVM-exception",
+  "Zlib",
+  "Apache-2.0",
+  "BSD-3-Clause",
+  "BSD-2-Clause",
+  "MIT",
+  "Unicode-3.0",
+  "MPL-2.0",
+  "BSL-1.0",
+  "CC0-1.0",
+  "Unlicense",
+  "CDLA-Permissive-2.0",
+  "ISC",
+  "NCSA",
+  "0BSD",
+  "MIT-0",
+]
+
+# Vigla currently distributes a macOS application. Include both supported Mac
+# architectures so target-specific crates cannot disappear from the notice.
+targets = [
+  "aarch64-apple-darwin",
+  "x86_64-apple-darwin",
+]
+
+ignore-build-dependencies = false
+ignore-dev-dependencies = true
+ignore-transitive-dependencies = false
+
+workarounds = ["ring", "rustls"]

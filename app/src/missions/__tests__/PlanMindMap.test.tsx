@@ -4,16 +4,27 @@ import PlanMindMap from "../PlanMindMap";
 
 describe("PlanMindMap", () => {
   it("renders inside a ReactFlowProvider without throwing", () => {
-    render(
+    const { container } = render(
       <PlanMindMap
         spec={{ title: "Add OAuth callback", objective: "" }}
         plan={{
-          tasks: [{ index: 0, title: "A", description: "", depends_on: [] }],
+          tasks: [
+            {
+              index: 0,
+              title: "A",
+              description: "Implement the callback safely",
+              depends_on: [],
+              criteria_summary: "Callback tests pass",
+            },
+          ],
           generation: 0,
         }}
       />,
     );
     expect(screen.getByTestId("plan-mind-map")).toBeInTheDocument();
+    expect(
+      screen.getByRole("group", { name: /mission plan map/i }),
+    ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /fit mind map/i }),
     ).toBeInTheDocument();
@@ -23,6 +34,11 @@ describe("PlanMindMap", () => {
     expect(
       screen.getByRole("button", { name: /download mind map/i }),
     ).toBeInTheDocument();
+    const taskNode = container.querySelector('[data-testid="rf__node-task-0"]');
+    expect(taskNode).toHaveAttribute("tabindex", "0");
+    expect(taskNode?.getAttribute("aria-label")).toMatch(
+      /implement the callback safely[\s\S]*callback tests pass/i,
+    );
   });
 
   it("downloads a scalable svg copy of the mind map", async () => {
@@ -88,5 +104,26 @@ describe("PlanMindMap", () => {
     expect(screen.getByTestId("plan-mind-map")).toBeInTheDocument();
     expect(screen.getByText("Tech stack")).toBeInTheDocument();
     expect(screen.getByText("Tauri")).toBeInTheDocument();
+  });
+
+  it("discloses model content omitted from a bounded preview", () => {
+    render(
+      <PlanMindMap
+        spec={{ title: "T", objective: "" }}
+        plan={{
+          tasks: [],
+          generation: 0,
+          tech_stack: Array.from({ length: 25 }, (_, index) => ({
+            layer: `layer ${index}`,
+            choice: `choice ${index}`,
+            rationale: "",
+            is_new: false,
+          })),
+        }}
+      />,
+    );
+    expect(
+      screen.getByText(/1 stack item omitted for a responsive preview/i),
+    ).toBeInTheDocument();
   });
 });

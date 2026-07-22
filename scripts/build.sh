@@ -7,8 +7,32 @@
 
 set -euo pipefail
 
+# Sanitize the environment before *any* dependency-controlled command runs.
+# Package lifecycle hooks and Cargo build scripts execute code, so clearing
+# credentials only immediately before Tauri would still expose them earlier in
+# this local-only build.
+export APPLE_SIGNING_IDENTITY="-"
+unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD
+unset APPLE_ID APPLE_TEAM_ID APPLE_PASSWORD APPLE_API_KEY APPLE_API_KEY_PATH APPLE_API_ISSUER
+
+# The optional embeddings build must use the checksum-verified ONNX Runtime
+# selected by the locked ort-sys crate. Do not let an ambient developer override
+# substitute a different native runtime while the bundle ships the pinned 1.24.2
+# notices. These are all ort-sys build-selection variables as of rc.12.
+unset ORT_LIB_PATH ORT_LIB_LOCATION ORT_LIB_PROFILE ORT_VCPKG_TARGET
+unset ORT_IOS_XCFWK_PATH ORT_IOS_XCFWK_LOCATION
+unset ORT_EXT_IOS_XCFWK_PATH ORT_EXT_IOS_XCFWK_LOCATION
+unset ORT_PREFER_DYNAMIC_LINK ORT_SKIP_DOWNLOAD ORT_OFFLINE
+unset ORT_CXX_STDLIB ORT_CUDA_VERSION ORT_CACHE_DIR
+
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DMG_DIR="$ROOT/target/release/bundle/dmg"
+LEGAL_DISTRIBUTION_FILES=(
+  LICENSE
+  NOTICE
+  THIRD_PARTY_NOTICES.md
+  THIRD_PARTY_NOTICES.txt
+)
 BUILD_MARKER="$(mktemp -t vigla-dmg-build.XXXXXX)"
 MOUNT_POINT=""
 MOUNT_ROOT=""
@@ -35,7 +59,7 @@ require_command() {
 
 [[ "$(uname -s)" == "Darwin" ]] || fail "DMG packaging requires macOS"
 
-for command_name in cargo node pnpm xcode-select hdiutil codesign shasum; do
+for command_name in cargo node pnpm xcode-select hdiutil codesign shasum cmp diff; do
   require_command "$command_name"
 done
 
@@ -49,12 +73,6 @@ echo "[build] compiling the bundled mock harness"
 
 [[ -x "$ROOT/target/release/mock-harness" ]] || \
   fail "target/release/mock-harness is missing or is not executable"
-
-# Always use Apple's ad-hoc pseudo-identity. Clearing notarization variables
-# prevents a developer's ambient shell configuration from identifying or
-# uploading this local build.
-export APPLE_SIGNING_IDENTITY="-"
-unset APPLE_ID APPLE_TEAM_ID APPLE_PASSWORD APPLE_API_KEY APPLE_API_KEY_PATH APPLE_API_ISSUER
 
 TAURI_BUILD_ARGS=(--bundles dmg --ci)
 if [[ -n "${EMBEDDINGS:-}" ]]; then
@@ -100,6 +118,20 @@ grep -Fq 'Signature=adhoc' <<<"$SIGNATURE_INFO" || \
   fail "the generated app is not ad-hoc signed"
 grep -Fq 'TeamIdentifier=not set' <<<"$SIGNATURE_INFO" || \
   fail "the generated app unexpectedly contains an Apple team identity"
+
+LICENSE_DIR="$MOUNTED_APP/Contents/Resources/licenses"
+[[ -d "$LICENSE_DIR" ]] || fail "bundled legal resources are missing"
+for legal_file in "${LEGAL_DISTRIBUTION_FILES[@]}"; do
+  [[ -f "$LICENSE_DIR/$legal_file" ]] || \
+    fail "bundled legal resource is missing: $legal_file"
+  cmp -s "$ROOT/$legal_file" "$LICENSE_DIR/$legal_file" || \
+    fail "bundled legal resource differs from the repository: $legal_file"
+done
+[[ -d "$LICENSE_DIR/third_party_licenses" ]] || \
+  fail "bundled third-party license directory is missing"
+diff -qr "$ROOT/third_party_licenses" "$LICENSE_DIR/third_party_licenses" >/dev/null || \
+  fail "bundled third-party licenses differ from the repository"
+
 hdiutil detach "$MOUNT_POINT" >/dev/null
 rmdir "$MOUNT_POINT" "$MOUNT_ROOT"
 MOUNT_POINT=""

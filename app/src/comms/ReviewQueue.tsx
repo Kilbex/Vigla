@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { commands } from "../bindings";
 import { selectWorkersNeedingReview, useOpsStore } from "../store";
@@ -28,6 +28,34 @@ const VENDOR_CAN_RETRY: Record<Vendor, boolean> = {
   mock: false,
 };
 
+interface ContinueState {
+  text: string;
+  busy: boolean;
+  error: string | null;
+}
+
+interface RetryState {
+  busy: boolean;
+  error: string | null;
+}
+
+const EMPTY_CONTINUE_STATE: ContinueState = {
+  text: "",
+  busy: false,
+  error: null,
+};
+const EMPTY_RETRY_STATE: RetryState = { busy: false, error: null };
+
+function commandErrorMessage(error: unknown): string {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : "";
+  return message.trim() || "Unexpected IPC failure. Try again.";
+}
+
 function relativeTime(spawnedAt: number, now: number): string {
   const delta = Math.max(0, now - spawnedAt);
   const s = Math.floor(delta / 1000);
@@ -51,12 +79,40 @@ export default function ReviewQueue() {
   const setReviewFocus = useOpsStore((s) => s.setReviewFocus);
   const getReviewStatus = useOpsStore((s) => s.getReviewStatus);
 
-  // Per-card inline continue state.
+  // Async state is keyed by worker so a pending completion cannot clear,
+  // disable, or error whichever card the user expands next.
   const [continueExpandedFor, setContinueExpandedFor] = useState<string | null>(null);
-  const [continueText, setContinueText] = useState("");
-  const [continueBusy, setContinueBusy] = useState(false);
-  const [continueError, setContinueError] = useState<string | null>(null);
+  const [continueByWorker, setContinueByWorker] = useState<
+    Record<string, ContinueState>
+  >({});
+  const [retryByWorker, setRetryByWorker] = useState<
+    Record<string, RetryState>
+  >({});
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const patchContinueState = useCallback(
+    (workerId: string, patch: Partial<ContinueState>) => {
+      setContinueByWorker((prev) => ({
+        ...prev,
+        [workerId]: {
+          ...(prev[workerId] ?? EMPTY_CONTINUE_STATE),
+          ...patch,
+        },
+      }));
+    },
+    [],
+  );
+  const patchRetryState = useCallback(
+    (workerId: string, patch: Partial<RetryState>) => {
+      setRetryByWorker((prev) => ({
+        ...prev,
+        [workerId]: {
+          ...(prev[workerId] ?? EMPTY_RETRY_STATE),
+          ...patch,
+        },
+      }));
+    },
+    [],
+  );
 
   // Sort workers by spawn time (newest first) — stable, deterministic
   // ordering; the selector preserves `workerOrder` (insertion).
@@ -76,23 +132,12 @@ export default function ReviewQueue() {
       const w = workers[wid];
       if (!w || !VENDOR_CAN_RETRY[w.vendor]) return;
       setContinueExpandedFor(wid);
-      setContinueError(null);
       queueMicrotask(() => textareaRef.current?.focus());
     };
     window.addEventListener("vigla:continue-expand", onExpand);
     return () =>
       window.removeEventListener("vigla:continue-expand", onExpand);
   }, [workers]);
-
-  // The continue draft is component-level state shared by every card,
-  // so reset it whenever the expanded card changes — opening continue
-  // on a different card must start empty, never inherit the previous
-  // card's text (else "send" would route one worker's prompt to
-  // another). `continueError` is intentionally left intact so a
-  // retry/continue failure stays visible on its card.
-  useEffect(() => {
-    setContinueText("");
-  }, [continueExpandedFor]);
 
   // Tick relative-time labels once per second so "12s ago" advances.
   const [now, setNow] = useState(() => Date.now());
@@ -120,6 +165,9 @@ export default function ReviewQueue() {
           const isFocused = focusedWorkerId === wid;
           const canRetry = VENDOR_CAN_RETRY[worker.vendor];
           const expanded = continueExpandedFor === wid;
+          const continueState =
+            continueByWorker[wid] ?? EMPTY_CONTINUE_STATE;
+          const retryState = retryByWorker[wid] ?? EMPTY_RETRY_STATE;
 
           const openDrawer = () => {
             setReviewFocus(wid);
@@ -127,12 +175,22 @@ export default function ReviewQueue() {
           };
 
           const retry = async () => {
-            if (!canRetry || isReplay) return;
+            if (!canRetry || isReplay || retryState.busy) return;
             setReviewFocus(wid);
-            const r = await commands.retryWorker(wid);
-            if (r.status === "error") {
-              setContinueExpandedFor(wid);
-              setContinueError(`retry failed: ${r.error}`);
+            patchRetryState(wid, { busy: true, error: null });
+            try {
+              const r = await commands.retryWorker(wid);
+              if (r.status === "error") {
+                patchRetryState(wid, {
+                  error: `retry failed: ${r.error}`,
+                });
+              }
+            } catch (error) {
+              patchRetryState(wid, {
+                error: `retry failed: ${commandErrorMessage(error)}`,
+              });
+            } finally {
+              patchRetryState(wid, { busy: false });
             }
           };
 
@@ -140,28 +198,37 @@ export default function ReviewQueue() {
             if (!canRetry || isReplay) return;
             setReviewFocus(wid);
             setContinueExpandedFor(wid);
-            setContinueError(null);
             queueMicrotask(() => textareaRef.current?.focus());
           };
 
           const cancelContinue = () => {
             setContinueExpandedFor(null);
-            setContinueText("");
-            setContinueError(null);
+            patchContinueState(wid, { text: "", error: null });
           };
 
           const submitContinue = async () => {
-            if (!continueText.trim() || continueBusy) return;
-            setContinueBusy(true);
-            setContinueError(null);
-            const r = await commands.continueWorker(wid, continueText);
-            setContinueBusy(false);
-            if (r.status === "error") {
-              setContinueError(`continue failed: ${r.error}`);
-              return;
+            if (!continueState.text.trim() || continueState.busy) return;
+            const prompt = continueState.text;
+            patchContinueState(wid, { busy: true, error: null });
+            try {
+              const r = await commands.continueWorker(wid, prompt);
+              if (r.status === "error") {
+                patchContinueState(wid, {
+                  error: `continue failed: ${r.error}`,
+                });
+                return;
+              }
+              patchContinueState(wid, { text: "", error: null });
+              setContinueExpandedFor((current) =>
+                current === wid ? null : current,
+              );
+            } catch (err) {
+              patchContinueState(wid, {
+                error: `continue failed: ${commandErrorMessage(err)}`,
+              });
+            } finally {
+              patchContinueState(wid, { busy: false });
             }
-            setContinueText("");
-            setContinueExpandedFor(null);
           };
 
           const accept = () => {
@@ -243,7 +310,8 @@ export default function ReviewQueue() {
                     e.stopPropagation();
                     retry();
                   }}
-                  disabled={!canRetry || isReplay}
+                  disabled={!canRetry || isReplay || retryState.busy}
+                  aria-busy={retryState.busy}
                   aria-label="retry"
                   title={canRetry ? "Retry (R)" : m3Tip}
                 >
@@ -289,6 +357,11 @@ export default function ReviewQueue() {
                   Reject
                 </button>
               </div>
+              {retryState.error ? (
+                <div className="review-continue-error" role="alert">
+                  {retryState.error}
+                </div>
+              ) : null}
               {expanded && (
                 <div
                   className="review-continue-inline"
@@ -298,8 +371,10 @@ export default function ReviewQueue() {
                     ref={textareaRef}
                     className="review-continue-input"
                     placeholder="follow-up prompt…"
-                    value={continueText}
-                    onChange={(e) => setContinueText(e.target.value)}
+                    value={continueState.text}
+                    onChange={(e) =>
+                      patchContinueState(wid, { text: e.target.value })
+                    }
                     onKeyDown={(e) => {
                       if (e.key === "Escape") {
                         e.preventDefault();
@@ -312,12 +387,12 @@ export default function ReviewQueue() {
                         submitContinue();
                       }
                     }}
-                    disabled={continueBusy}
+                    disabled={continueState.busy}
                     aria-label="continue follow-up prompt"
                   />
-                  {continueError ? (
+                  {continueState.error ? (
                     <div className="review-continue-error" role="alert">
-                      {continueError}
+                      {continueState.error}
                     </div>
                   ) : null}
                   <div className="review-continue-actions">
@@ -325,7 +400,7 @@ export default function ReviewQueue() {
                       type="button"
                       className="review-continue-cancel"
                       onClick={cancelContinue}
-                      disabled={continueBusy}
+                      disabled={continueState.busy}
                     >
                       cancel
                     </button>
@@ -333,9 +408,11 @@ export default function ReviewQueue() {
                       type="button"
                       className="review-continue-send"
                       onClick={submitContinue}
-                      disabled={!continueText.trim() || continueBusy}
+                      disabled={
+                        !continueState.text.trim() || continueState.busy
+                      }
                     >
-                      {continueBusy ? "sending…" : "send →"}
+                      {continueState.busy ? "sending…" : "send →"}
                     </button>
                   </div>
                 </div>

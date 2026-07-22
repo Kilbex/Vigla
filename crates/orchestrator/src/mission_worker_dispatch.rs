@@ -39,7 +39,7 @@
 //! - Anything else is rejected pre-spawn by the host IPC.
 
 use crate::mission_runtime::CancelToken;
-use crate::parser::{read_line_capped, LineRead, WorkerEventSink, MAX_LINE_BYTES};
+use crate::parser::{read_line_resumable, LineRead, WorkerEventSink, MAX_LINE_BYTES};
 use crate::repository::{InsertOutcome, Repository};
 pub use crate::vendor_profile::WorkerVendor;
 use crate::vendor_profile::{profile_for_vendor, render_command_args, CommandRole, CommandVars};
@@ -503,6 +503,12 @@ async fn collect_child_output_and_status_controlled(
     let mut stderr_buf = BufReader::new(stderr);
     let mut stdout_line = String::new();
     let mut stderr_line = String::new();
+    // Persistent per-stream accumulators so the select! reads are cancel-safe:
+    // when a non-winning read arm is dropped mid-line, its consumed bytes
+    // survive here and the next read resumes from them (a plain read_until
+    // would lose them, corrupting the line).
+    let mut stdout_partial: Vec<u8> = Vec::new();
+    let mut stderr_partial: Vec<u8> = Vec::new();
     let mut stdout_eof = false;
     let mut stderr_eof = false;
     let mut captured = String::new();
@@ -529,7 +535,7 @@ async fn collect_child_output_and_status_controlled(
                 crate::process_tree::terminate_and_reap(&mut child).await;
                 return Err(ControlledCollectError::Timeout);
             }
-            line = read_line_capped(&mut stdout_buf, &mut stdout_line, MAX_LINE_BYTES),
+            line = read_line_resumable(&mut stdout_buf, &mut stdout_partial, &mut stdout_line, MAX_LINE_BYTES),
                 if !stdout_eof =>
             {
                 match line {
@@ -549,7 +555,7 @@ async fn collect_child_output_and_status_controlled(
                     Ok(LineRead::Eof) | Err(_) => stdout_eof = true,
                 }
             },
-            line = read_line_capped(&mut stderr_buf, &mut stderr_line, MAX_LINE_BYTES),
+            line = read_line_resumable(&mut stderr_buf, &mut stderr_partial, &mut stderr_line, MAX_LINE_BYTES),
                 if !stderr_eof =>
             {
                 match line {
@@ -576,6 +582,7 @@ async fn collect_child_output_and_status_controlled(
     if !stdout_eof {
         drain_after_child_exit(
             &mut stdout_buf,
+            &mut stdout_partial,
             &mut stdout_line,
             &mut captured,
             &mut capture_truncated,
@@ -587,6 +594,7 @@ async fn collect_child_output_and_status_controlled(
     if !stderr_eof {
         drain_after_child_exit(
             &mut stderr_buf,
+            &mut stderr_partial,
             &mut stderr_line,
             &mut captured,
             &mut capture_truncated,
@@ -608,6 +616,7 @@ async fn wait_for_optional_cancel(cancel: Option<&CancelToken>) {
 
 async fn drain_after_child_exit<R>(
     reader: &mut R,
+    partial: &mut Vec<u8>,
     line: &mut String,
     captured: &mut String,
     capture_truncated: &mut bool,
@@ -619,7 +628,7 @@ async fn drain_after_child_exit<R>(
     loop {
         let read = timeout(
             POST_EXIT_DRAIN_TIMEOUT,
-            read_line_capped(reader, line, MAX_LINE_BYTES),
+            read_line_resumable(reader, partial, line, MAX_LINE_BYTES),
         )
         .await;
         match read {
