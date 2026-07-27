@@ -1,8 +1,8 @@
 //! Endurance CLI — read a live heartbeat or run a compressed soak.
 //!
 //! Usage:
-//!   orchestrator_endurance status --root <path>
-//!   orchestrator_endurance simulate [--hours N]
+//!   `orchestrator_endurance status --root <path>`
+//!   `orchestrator_endurance simulate [--hours N]`
 //!
 //! `status` classifies the heartbeat under `<path>/.vigla/endurance/`
 //! and encodes liveness in the exit code (0 ok, 1 stalled, 2 crashed,

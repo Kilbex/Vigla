@@ -8,7 +8,7 @@
 //!   * the **supervised** path ([`MissionRuntime::start_supervised`] and
 //!     its `_with`/`_with_memory` variants) — the live system: a real (or
 //!     scripted) supervisor decomposes the mission and drives
-//!     [`crate::mission_supervisor_run::run_supervisor_mission`], which
+//!     `crate::mission_supervisor_run::run_supervisor_mission`, which
 //!     dispatches workers over a `JoinSet`, runs the audit/arbiter loop,
 //!     integrates on Accept, and beats the process-level endurance
 //!     heartbeat (injected here via [`crate::endurance::shared_monitor`]);
@@ -338,8 +338,9 @@ impl MissionRuntime {
     }
 
     /// Start a mission whose supervisor is a real (or scripted)
-    /// driver per [`SupervisorDriver`]. The worker backend is derived
-    /// from `spec.worker_model` automatically — see
+    /// driver per [`crate::mission_supervisor_run::SupervisorDriver`].
+    /// The worker backend is derived from `spec.worker_model`
+    /// automatically — see
     /// [`crate::mission_supervisor_run::select_worker_backend`].
     /// The runtime's `abort`, `resolve`, `subscribe`, `state`, and
     /// `mission_id` behave identically to the mock-backed path; only

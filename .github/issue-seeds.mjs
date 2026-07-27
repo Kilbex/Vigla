@@ -52,23 +52,24 @@ cargo test -p vigla-adapter-conformance
 \`\`\``,
   },
   {
-    title: "adapter: add an Antigravity conformance transcript",
+    title: "adapter: pin stdout/stderr interleaving for a raw-log adapter",
     labels: ["good first issue", "help wanted", "adapter", "test"],
     body: `## Why
 
-Antigravity is the current verified Google worker path. A reviewed transcript in the shared conformance harness catches drift beyond the crate-local happy path.
+The three raw-log adapters (\`antigravity\`, \`kiro\`, \`copilot\`) each have four conformance cases — \`happy_path\`, \`quota_exhaustion\`, \`killed_midrun\`, \`silent_worker\` — but none pins the ordering of interleaved stdout and stderr lines, which the \`claude\`, \`codex\`, and \`gemini\` suites do cover.
 
 ## Scope
 
-- Add one minimal, redacted Antigravity transcript fixture.
-- Route it through \`vigla-adapter-conformance\`.
-- Assert state, progress, completion/failure, and monotonically increasing sequence numbers.
+- Pick one of \`antigravity\`, \`kiro\`, or \`copilot\`.
+- Add an \`interleaved_stderr\` transcript alongside the existing cases in \`crates/adapters/<vendor>/tests/conformance/\`, following the shape the \`codex\` and \`gemini\` suites already use.
+- Register it in that crate's \`tests/conformance.rs\` and commit the generated golden.
 
 ## Done when
 
-- [ ] The fixture documents which line-oriented fallback it represents.
+- [ ] The transcript is synthetic and contains no token, account, or private path.
 - [ ] The test needs no vendor binary or credentials.
-- [ ] Parser caps and redaction expectations remain intact.
+- [ ] The golden shows verbatim passthrough on both streams with monotonically increasing sequence numbers.
+- [ ] The crate's existing four cases are unchanged.
 
 ## Verify
 

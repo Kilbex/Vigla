@@ -32,6 +32,11 @@ test.describe("GitHub Pages launch surface", () => {
       "content",
       /coding agents working in parallel/i,
     );
+    // The page must not sell the replay as a capture of a real session; the
+    // events are hand-authored in app/src/demo/recordings.ts.
+    await expect(page.locator(".visual-status .status-live")).toHaveText(
+      "SCRIPTED REPLAY · NO VENDOR CALLS",
+    );
     await expect(page.getByRole("heading", { level: 1 })).toContainText(
       "Supervise the merge",
     );
@@ -56,7 +61,7 @@ test.describe("GitHub Pages launch surface", () => {
       ),
     ).toBe(true);
 
-    await page.getByRole("button", { name: "Play 15-second preview" }).click();
+    await page.getByRole("button", { name: "Play 16-second preview" }).click();
     await expect(heroImage).toHaveAttribute("src", /vigla-demo\.webp$/);
     await expect(page.getByRole("button", { name: "Stop preview" })).toHaveAttribute(
       "aria-pressed",
@@ -67,7 +72,7 @@ test.describe("GitHub Pages launch surface", () => {
 
     await page.getByRole("link", { name: "Watch the replay" }).click();
     await expect(page).toHaveURL(/\/Vigla\/demo\/$/);
-    await expect(page.getByRole("region", { name: "Recorded replay demo" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Scripted replay demo" })).toBeVisible();
     await expect(page.locator(".station")).toHaveCount(3);
 
     expect([...requestedOrigins]).toEqual(["http://127.0.0.1:5190"]);

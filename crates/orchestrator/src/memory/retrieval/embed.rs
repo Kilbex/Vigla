@@ -23,7 +23,7 @@
 //!
 //! fastembed wraps ORT, which is deterministic for a fixed model +
 //! input + thread count. We pin nothing here — the determinism test
-//! ([`tests::same_input_produces_bit_identical_vector`]) embeds the
+//! (`tests::same_input_produces_bit_identical_vector`) embeds the
 //! same string twice and asserts byte-for-byte equality.
 
 /// Stable identifier for the embedding model. Bumping this string

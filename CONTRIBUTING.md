@@ -25,7 +25,8 @@ cd app && pnpm exec vitest run && pnpm build
 > bundles the release `mock-harness` binary as a resource, and `tauri_build`
 > validates that path on every compile — so `cargo test --workspace` fails from
 > a clean checkout until the binary exists. `cargo xtask test` builds it first.
-> `cargo xtask help` lists the rest (`build`, `clippy`, `ci`, `receipt`).
+> `cargo xtask help` lists the rest (`build`, `clippy`, `ci`, `receipt`,
+> `build-mock-harness`).
 
 Run the app:
 
@@ -86,9 +87,10 @@ product-level changes as a GitHub issue rather than a doc PR.
 ## Continuous Integration
 
 Every pull request runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
-A PR is not mergeable until the macOS Rust and frontend jobs, the portable Linux
-job, and the supply-chain policy are green. You can reproduce every gate locally
-before pushing — please do, it keeps review fast.
+A PR is not mergeable until all six checks are green: the macOS **Rust** and
+**Frontend** jobs, **Browser E2E**, **Portable Rust (Linux)**, **Rust docs**,
+and **Supply chain**. You can reproduce every gate locally before pushing —
+please do, it keeps review fast.
 
 **Rust job** — in order:
 
@@ -99,39 +101,72 @@ before pushing — please do, it keeps review fast.
 | Build the release `mock-harness` (Tauri bundle resource) | `cargo xtask build-mock-harness` |
 | `cargo check --workspace --all-targets --all-features` | same |
 | `cargo clippy --workspace --all-targets -- -D warnings` | `cargo xtask clippy` |
+| `cargo clippy -p vigla-orchestrator --all-targets --features embeddings -- -D warnings` | same |
 | `cargo clippy --workspace --release --all-targets -- -D warnings` | `cargo xtask clippy --release` |
 | `cargo test --workspace` | `cargo xtask test` |
+| The one `#[ignore]`d embeddings smoke test | same (downloads the model on first run; needs network) |
 | Regenerate TypeScript bindings and require a clean diff | `VIGLA_REGEN_BINDINGS=1 cargo test -p vigla-host --lib regenerate_typescript_bindings && git diff --exit-code -- app/src/bindings.ts` |
 | Regenerate the lock-bound Rust dependency license report and require a clean diff | See “Dependency license updates” below |
 | `cargo xtask receipt` | same |
 | `cargo audit --deny warnings` | `cargo audit --deny warnings` |
 
-**Portable Linux job** — all workspace crates except the macOS Tauri host:
+**Portable Rust (Linux) job** — all workspace crates except the macOS Tauri
+host, then a compile on the declared MSRV:
 
 ```sh
 cargo check --workspace --all-targets --exclude vigla-host
 cargo clippy --workspace --all-targets --exclude vigla-host -- -D warnings
 cargo test --workspace --exclude vigla-host
+
+msrv="$(sed -n 's/^rust-version = "\([0-9][0-9.]*\)"$/\1/p' Cargo.toml)"
+rustup toolchain install "$msrv" --profile minimal --no-self-update
+cargo "+$msrv" check --workspace --all-targets --exclude vigla-host
 ```
+
+The MSRV is read from `Cargo.toml`, never hardcoded — `rust-toolchain.toml`
+pins the compiler we develop on, which is allowed to be newer, so the pin alone
+proves nothing about the minimum we promise downstream. This job is also why
+platform-specific code must not assume macOS: it is the only place a
+`~/Library/...` path or a macOS-only syscall gets caught.
+
+**Rust docs job** — the canonical event contract's doc comments *are* the spec
+(`crates/event-schema/src/lib.rs`), so an undocumented public item or a dead
+intra-doc link is a hole in the spec:
+
+```sh
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --exclude vigla-host \
+  --no-deps --document-private-items
+```
+
+`vigla-event-schema` and `vigla-adapter-core` additionally set
+`#![deny(missing_docs)]`, so every public item there needs a doc comment.
 
 **Supply-chain job** — a checksum-pinned Gitleaks binary scans the complete
 reachable Git history before `cargo deny --all-features check` enforces the
 license, crate-ban, advisory, and registry-source policy in
 [`deny.toml`](deny.toml).
 
-**Frontend job** — in `app/`:
+**Frontend job** — from the repository root unless a row says otherwise:
 
 | CI step | Local equivalent |
 | --- | --- |
 | `pnpm install --frozen-lockfile` | same |
+| `pnpm -C app licenses:check` | same |
 | `pnpm audit --audit-level low` | same |
-| `pnpm exec vitest run` | same |
-| `pnpm build` | same |
-| `pnpm build:webdemo` | same |
-| `pnpm site:check` | same |
+| `pnpm exec vitest run` (in `app/`) | same |
+| `pnpm build` (in `app/`) | same |
+| `pnpm build:webdemo` (in `app/`) | same |
+| `pnpm site:check` (in `app/`) | same |
 
 The same job also runs `node --test scripts/*.test.mjs` and
 `node scripts/check-links.mjs` from the repository root.
+
+A stale license report is reported directly rather than surfacing several steps
+later inside an unrelated-looking build failure. The Rust job prints the exact
+regeneration command sequence and a link to the **Regenerate dependency
+notices** workflow; the Frontend and Browser E2E jobs fail early and point at
+it. The six CI jobs run in parallel, so you see this without waiting for the
+Rust gate to finish.
 
 ### Dependency license updates
 
@@ -149,7 +184,16 @@ pnpm -C app licenses:write
 ```
 
 After a production JavaScript dependency change, `pnpm -C app licenses:write`
-is sufficient. If an `ort-sys` update selects a different ONNX Runtime release,
+is sufficient.
+
+The sequence above needs push access to the branch. On a Dependabot branch — or
+any branch you cannot push to — a `Cargo.lock` change reddens the Rust,
+Frontend, and Browser E2E jobs and you cannot fix it from the PR. Ask a
+maintainer to dispatch the **Regenerate dependency notices** workflow
+([`.github/workflows/regenerate-notices.yml`](.github/workflows/regenerate-notices.yml))
+with that branch name; it runs the same commands with the same pinned
+`cargo-about` version, re-runs the gates, and pushes the regenerated files back
+to the branch. If an `ort-sys` update selects a different ONNX Runtime release,
 update the pinned sources and checksums in
 [`scripts/retained-license-sources.mjs`](scripts/retained-license-sources.mjs),
 then fetch and verify the official tagged legal files before regenerating:
@@ -196,6 +240,10 @@ gate is:
 ```sh
 cargo fmt --all -- --check
 cargo xtask ci          # = cargo xtask test + cargo xtask clippy (debug, -D warnings)
+cargo check --workspace --all-targets --all-features
+cargo clippy -p vigla-orchestrator --all-targets --features embeddings -- -D warnings
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --exclude vigla-host \
+  --no-deps --document-private-items
 VIGLA_REGEN_BINDINGS=1 cargo test -p vigla-host --lib regenerate_typescript_bindings
 git diff --exit-code -- app/src/bindings.ts
 cargo xtask receipt     # fixed recovery case set + exact-SHA mission revert
@@ -285,11 +333,16 @@ dependencies raise the audit and supply-chain surface, so they get scrutiny:
 - **`pnpm audit --audit-level low` must pass** — the locked frontend and
   JavaScript tooling graph is not exempt from the same zero-known-advisory floor.
 - **The only tolerated advisories live in [`.cargo/audit.toml`](.cargo/audit.toml)**,
-  a curated ignore-list of *known, currently-unfixable upstream* advisories. Every
-  entry carries a rationale and a re-evaluation trigger (usually "clear when
-  `<dep>` bumps"). Do **not** add an entry to silence an advisory you can fix by
-  bumping a dependency — bump it. A new advisory on a dependency you introduce is
-  expected to hard-fail; that is the gate working.
+  a curated ignore-list. Most entries are *unmaintained-crate* advisories with
+  no known vulnerability and therefore no upstream fix to wait for — they clear
+  when the dependent drops the crate. The rest are real vulnerabilities with no
+  semver-compatible bump available. Some entries are compiled into the shipped
+  macOS binary and some are not; every entry must say which, name the dependent
+  chain, and carry a re-evaluation trigger. The per-class breakdown is in
+  [SECURITY.md](SECURITY.md#tolerated-advisories). Do **not** add an entry to
+  silence an advisory you can fix by bumping a dependency — bump it. A new
+  advisory on a dependency you introduce is expected to hard-fail; that is the
+  gate working.
 - **Keep lockfiles honest.** Commit `Cargo.lock`, and keep `pnpm-lock.yaml` in sync
   (`pnpm install` updates it). CI installs with `--locked` / `--frozen-lockfile`,
   so a stale lockfile fails the build.

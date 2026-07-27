@@ -3,7 +3,7 @@
 //! Scope paths are directory or file prefixes relative to the
 //! worktree root. A touched file matches scope if any scope path
 //! is a prefix of the touched file's path. Final score is routed
-//! through [`crate::audit::report::clamp_score`].
+//! through `crate::audit::report::clamp_score`.
 
 use crate::audit::report::{clamp_score, ScopeScore};
 use std::path::Path;

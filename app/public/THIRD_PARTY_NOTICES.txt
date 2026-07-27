@@ -123,7 +123,7 @@ LOCKED PRODUCTION RUST DEPENDENCY INVENTORY
 ===============================================================================
 
 Generated with cargo-about@0.9.1; Cargo.lock SHA-256:
-1851cac10d2755d6cea4f9cd27d7d39336e8f62627af2632f7c70fb3b357d121
+deb8aa672c1d96ee97c0b20c54c050e2d784449971812d6ccdfe6414213291eb
 about.toml SHA-256: 619c342d4c33399548ffb8d4f23fcd408d115755a52da1e5cce5631add29203c
 
 - Inflector 0.11.4 — Declared license: BSD-2-Clause; Selected: BSD-2-Clause; Source: https://crates.io/crates/Inflector/0.11.4

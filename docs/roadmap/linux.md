@@ -67,7 +67,9 @@ On a fresh supported Ubuntu LTS VM:
 1. install documented prerequisites;
 2. clone the repository and install locked frontend dependencies;
 3. run the full portable Rust, frontend, and browser gates;
-4. launch all three mock mission outcomes through the native app;
+4. run the credential-free mock mission through the native app (Deploy →
+   Advanced → Supervisor: Mock (demo)) end to end, and spawn each of the seven
+   bundled `mock-harness` worker scripts;
 5. complete a rollback-anchored target merge and revert it;
 6. build one AppImage and one `.deb` locally;
 7. verify both packages and their checksums;

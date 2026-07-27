@@ -1,0 +1,9 @@
+{
+  "lines": [
+    { "stream": "stdout", "text": "antigravity: workspace /Users/alice/src/demo-app" },
+    { "stream": "stdout", "text": "antigravity: editing src/lib.rs" },
+    { "stream": "stdout", "text": "" },
+    { "stream": "stderr", "text": "antigravity: 1 file changed" }
+  ],
+  "finalize": "Clean"
+}

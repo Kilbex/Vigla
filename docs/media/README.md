@@ -1,9 +1,10 @@
 # Public media
 
 These assets support the README, GitHub Pages site, independent reviews, and
-release coverage. Product screenshots and motion use fictional deterministic
-events; they contain no credentials, private prompts, user paths, or vendor
-traffic.
+release coverage. Product screenshots and motion show the real UI driven by
+hand-authored, deterministic canonical events — scripted, not captured from a
+real session. They contain no credentials, private prompts, user paths, or
+vendor traffic. Do not caption them as recordings of real agent runs.
 
 Unless an asset says otherwise, it is distributed under the repository's
 [Apache 2.0 license](../../LICENSE).
@@ -11,9 +12,11 @@ Unless an asset says otherwise, it is distributed under the repository's
 ## Product captures
 
 Run `scripts/capture-readme-media.cjs` against the local end-to-end mock surface
-to regenerate `ops-room.png`, `plan-review.png`, `mission-inbox.png`, their web
-derivatives, and the 1280×640 social card. Run
-`scripts/capture-web-demo.cjs` to regenerate `vigla-demo.webp`.
+to regenerate `ops-room.png`, `plan-review.png`, `mission-inbox.png`, the two
+1280×800 WebP derivatives — `vigla-demo-poster.webp` (from the Operations Room
+capture) and `mission-inbox.webp` — and the 1280×640 social card. There is no
+`plan-review` WebP. Run `scripts/capture-web-demo.cjs` to regenerate
+`vigla-demo.webp`.
 
 The social card is composed deterministically from the Operations Room capture,
 so link previews show the real product rather than a conceptual mockup.

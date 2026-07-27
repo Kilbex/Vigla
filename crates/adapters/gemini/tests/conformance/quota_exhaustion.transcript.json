@@ -1,0 +1,8 @@
+{
+  "lines": [
+    { "stream": "stdout", "text": "{\"type\":\"init\",\"timestamp\":\"2000-01-01T00:00:00.000Z\",\"session_id\":\"fixture-gemini-session-001\",\"model\":\"gemini-fixture-model\"}" },
+    { "stream": "stdout", "text": "{\"type\":\"message\",\"timestamp\":\"2000-01-01T00:00:00.001Z\",\"role\":\"user\",\"content\":\"Summarize the synthetic fixture in one sentence.\"}" },
+    { "stream": "stdout", "text": "{\"type\":\"result\",\"timestamp\":\"2000-01-01T00:00:00.005Z\",\"status\":\"error\",\"error\":\"RESOURCE_EXHAUSTED: quota exceeded for the day\",\"stats\":{\"total_tokens\":32,\"input_tokens\":32,\"output_tokens\":0,\"cached\":0,\"input\":32}}" }
+  ],
+  "finalize": null
+}

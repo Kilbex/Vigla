@@ -1,0 +1,11 @@
+{
+  "lines": [
+    { "stream": "stdout", "text": "{\"type\":\"init\",\"timestamp\":\"2000-01-01T00:00:00.000Z\",\"session_id\":\"fixture-gemini-session-001\",\"model\":\"gemini-fixture-model\"}" },
+    { "stream": "stdout", "text": "{\"type\":\"message\",\"timestamp\":\"2000-01-01T00:00:00.001Z\",\"role\":\"user\",\"content\":\"Summarize the synthetic fixture in one sentence.\"}" },
+    { "stream": "stdout", "text": "{\"type\":\"tool_use\",\"timestamp\":\"2000-01-01T00:00:00.002Z\",\"tool_name\":\"read_file\",\"tool_id\":\"fixture-tool-read-001\",\"parameters\":{\"file_path\":\"README.md\"}}" },
+    { "stream": "stdout", "text": "{\"type\":\"tool_result\",\"timestamp\":\"2000-01-01T00:00:00.003Z\",\"tool_id\":\"fixture-tool-read-001\",\"status\":\"success\",\"output\":\"Synthetic README fixture content.\"}" },
+    { "stream": "stdout", "text": "{\"type\":\"message\",\"timestamp\":\"2000-01-01T00:00:00.004Z\",\"role\":\"assistant\",\"content\":\"Summarized the synthetic fixture.\",\"delta\":true}" },
+    { "stream": "stdout", "text": "{\"type\":\"result\",\"timestamp\":\"2000-01-01T00:00:00.005Z\",\"status\":\"success\",\"stats\":{\"total_tokens\":40,\"input_tokens\":32,\"output_tokens\":8,\"cached\":0,\"input\":32,\"duration_ms\":1000,\"tool_calls\":1}}" }
+  ],
+  "finalize": "Clean"
+}

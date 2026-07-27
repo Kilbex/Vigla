@@ -175,6 +175,23 @@ describe("formatTeam", () => {
       "Codex supervisor · auto workers",
     );
   });
+
+  it("names the scripted supervisor Mock rather than echoing its wire value", () => {
+    expect(formatTeam({ ...base, supervisor_model: "auto" })).toBe(
+      "Mock supervisor · auto workers",
+    );
+  });
+
+  it("does not credit vendor CLIs to a mock mission that never spawns them", () => {
+    expect(
+      formatTeam({
+        ...base,
+        supervisor_model: "auto",
+        worker_model: "claude,codex,antigravity",
+        worker_count: 3,
+      }),
+    ).toBe("Mock supervisor · 3 workers");
+  });
 });
 
 describe("MissionOverlay", () => {

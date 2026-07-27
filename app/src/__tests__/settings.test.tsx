@@ -13,6 +13,7 @@ vi.mock("../bindings", () => ({
 
 import { commands } from "../bindings";
 import Settings from "../settings/Settings";
+import mockHarnessSource from "../../../crates/mock-harness/src/lib.rs?raw";
 
 const goodResponse = {
   version: "0.0.1",
@@ -216,6 +217,50 @@ describe("Settings — Developer section (Step 23)", () => {
       );
     });
     expect(screen.getByText(/started L1 quota mission/i)).toBeInTheDocument();
+  });
+});
+
+// The names the mock harness actually ships, read out of the
+// `Script::name()` match arms. Reading the Rust source is what keeps the
+// dev-tools list from drifting again — it had silently shrunk to three
+// of the seven trajectories.
+function bundledScriptNames(): string[] {
+  const start = mockHarnessSource.indexOf(
+    "pub fn name(&self) -> &'static str {",
+  );
+  if (start < 0) throw new Error("Script::name() not found in mock-harness");
+  const body = mockHarnessSource.slice(
+    start,
+    mockHarnessSource.indexOf("\n    }", start),
+  );
+  const names: string[] = [];
+  const arm = /=> "([a-z_]+)"/g;
+  let match = arm.exec(body);
+  while (match !== null) {
+    names.push(match[1]);
+    match = arm.exec(body);
+  }
+  return names;
+}
+
+describe("Settings — bundled mock scripts", () => {
+  it("offers a spawn button for every script the mock harness bundles", async () => {
+    (commands.appSettings as any).mockResolvedValue(goodResponse);
+    render(<Settings open onClose={() => {}} />);
+    await waitFor(() =>
+      expect(screen.getByText(/^Developer$/)).toBeInTheDocument(),
+    );
+
+    const names = bundledScriptNames();
+    // Sanity on the parse itself, and on the trajectory the drifted
+    // list had dropped — an empty `names` would pass the loop below
+    // without asserting anything.
+    expect(names).toContain("claude_quota_exhausted");
+    for (const name of names) {
+      expect(
+        screen.getByRole("button", { name: new RegExp(`^${name}$`) }),
+      ).toBeInTheDocument();
+    }
   });
 });
 

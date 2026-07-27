@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "generator": "cargo-about@0.9.1",
-  "cargo_lock_sha256": "1851cac10d2755d6cea4f9cd27d7d39336e8f62627af2632f7c70fb3b357d121",
+  "cargo_lock_sha256": "deb8aa672c1d96ee97c0b20c54c050e2d784449971812d6ccdfe6414213291eb",
   "about_config_sha256": "619c342d4c33399548ffb8d4f23fcd408d115755a52da1e5cce5631add29203c",
   "packages": [
     {

@@ -160,8 +160,9 @@ fn kind_is_sheddable(kind: &crate::mission_event::MissionEventKind) -> bool {
     )
 }
 
-/// Receiver returned by [`MissionRuntime::subscribe`]. It first drains
-/// the replay snapshot, then continues with live broadcast events.
+/// Receiver returned by [`super::MissionRuntime::subscribe`]. It first
+/// drains the replay snapshot, then continues with live broadcast
+/// events.
 #[derive(Debug)]
 pub struct MissionEventReceiver {
     backlog: VecDeque<MissionEvent>,

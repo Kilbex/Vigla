@@ -4,7 +4,7 @@
 //! and routes each class through a single recovery policy that
 //! produces a [`RecoveryAction`]. Recovery is the *failure* path of
 //! the per-task loop in
-//! [`crate::mission_supervisor_run::mission_loop`]; the success path
+//! `crate::mission_supervisor_run::mission_loop`; the success path
 //! (audit + arbiter) is untouched.
 //!
 //! Per the supervisor-final-arbiter roadmap §7 S5 the engine covers

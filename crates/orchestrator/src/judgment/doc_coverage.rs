@@ -25,7 +25,7 @@ const ELIGIBLE_EXTS: &[&str] = &["rs", "ts", "tsx", "js", "jsx", "mjs", "cjs", "
 /// Score the doc-coverage ratio over touched files.
 ///
 /// Returns the fraction of *eligible* files (those whose extension
-/// is in [`ELIGIBLE_EXTS`]) whose body begins with a doc-comment
+/// is in `ELIGIBLE_EXTS`) whose body begins with a doc-comment
 /// block. Vacuously returns 1.0 when no eligible files are
 /// present (e.g. a documentation-only PR touching just markdown).
 ///

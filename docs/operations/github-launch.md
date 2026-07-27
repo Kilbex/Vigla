@@ -40,21 +40,28 @@ node scripts/bootstrap-github.mjs --dry-run
 node scripts/bootstrap-github.mjs
 ```
 
-It sets the description, Pages homepage, topics, Discussions/Issues, squash-only
-merge policy, branch cleanup, private vulnerability reporting, 21 labels, and
-11 real issues with commands and acceptance criteria. It never changes
-visibility, pushes code, uploads a binary, or creates a release.
+It sets the description, Pages homepage, topics (as a set, so a removed topic
+actually leaves the repository), Discussions/Issues, squash-only merge policy,
+branch cleanup, private vulnerability reporting, Dependabot alerts, Dependabot
+automated security fixes, GitHub Pages with `build_type: workflow`, 21 labels,
+11 real issues with commands and acceptance criteria, the three issue pins, and
+the `main` ruleset requiring the five CI checks. Every phase is idempotent. It
+never changes visibility, pushes code, uploads a binary, or creates a release.
+
+`--dry-run` is fully offline: it needs no network and no authenticated `gh`,
+and prints the full ruleset JSON so you can read it before applying.
 
 ## Repository settings
 
-- Set Pages source to **GitHub Actions** and confirm the `Pages` workflow serves
-  `https://kilbex.github.io/Vigla/`, `/demo/`, `/llms.txt`, and
-  `/llms-full.txt`.
+Pages source, Dependabot alerts, and Dependabot security updates are set by
+the bootstrap; the rest of this section is manual.
+
+- Confirm the `Pages` workflow serves `https://kilbex.github.io/Vigla/`,
+  `/demo/`, `/llms.txt`, and `/llms-full.txt`.
 - Upload `docs/media/social-preview.png` as the repository social preview.
-- Enable private vulnerability reporting, Dependabot alerts, and Dependabot
-  security updates, secret scanning, and push protection. Confirm the
-  private-report button from a signed-out/private browser without submitting a
-  report.
+- Enable secret scanning and push protection. Confirm the private-report button
+  (enabled by the bootstrap) from a signed-out/private browser without
+  submitting a report.
 - Keep Actions permissions read-only by default. The Pages build job receives
   only `contents: read` and `pages: read`; only the deploy job receives
   `pages: write` and `id-token: write`.
@@ -62,23 +69,62 @@ visibility, pushes code, uploads a binary, or creates a release.
 
 ## Main branch ruleset
 
-Require pull requests with one approving code-owner review, resolved
-conversations, and branches updated before merge. Block force pushes and branch
-deletion. Allow squash merge only. While `CODEOWNERS` names a single
-maintainer, add the repository-admin role to the ruleset bypass list in **For
-pull requests only** mode. The maintainer must still open a PR and may use the
-bypass only for the impossible self-review, after every required check passes.
-Remove that bypass as soon as a second trusted maintainer can review changes.
-Require these checks, which run on every PR:
+The bootstrap creates this ruleset. It requires pull requests with one
+approving code-owner review, resolved conversations, and branches updated
+before merge; blocks force pushes and branch deletion; allows squash merge
+only; and adds a repository-admin bypass in **For pull requests only** mode,
+because `CODEOWNERS` names a single maintainer who cannot self-approve.
+
+**Owner verification step — do this after the first real run.** The bypass
+actor is written as a numeric `RepositoryRole` id, and GitHub does not publish
+those ids in its REST documentation, so the value is conventional rather than
+sourced. Open **Settings → Rules → main** and confirm the bypass entry reads
+*Repository admin*. If it does not, `main` is unmergeable by the sole
+maintainer: enforcement is active and one approving code-owner review is
+required. Fix it in the UI before merging anything.
+
+The maintainer must still open a PR and may use the bypass only for the
+impossible self-review, after every required check passes. Remove that bypass
+as soon as a second trusted maintainer can review changes. The required checks,
+which run on every PR:
 
 - `Rust`
 - `Frontend`
 - `Browser E2E`
 - `Portable Rust (Linux)`
+- `Rust docs`
 - `Supply chain`
 
-Do not require the path-filtered `Package smoke` check globally; require and
-inspect it whenever it appears on packaging, app, crate, or lockfile changes.
+Do not require the path-filtered `Verify local DMG recipe` check (the job in
+the `Package smoke` workflow — GitHub matches required checks on the job name,
+not the workflow name) globally; require and inspect it whenever it appears on
+packaging, app, crate, or lockfile changes.
+
+`Scorecard analysis` is likewise not required. OpenSSF Scorecard grades
+repository *settings* — branch protection, action pinning, token permissions —
+which a contributor cannot influence from a diff, so blocking merges on it
+would fail PRs nobody can fix. It runs on `main`, weekly, on
+`branch_protection_rule` events, and on demand.
+
+## OpenSSF Scorecard (owner-gated)
+
+[`.github/workflows/scorecard.yml`](../../.github/workflows/scorecard.yml)
+writes `results.sarif` to a build artifact and sets `publish_results: false`.
+Two follow-ups are the owner's call, and both are one-way doors:
+
+1. **Publish the score.** Setting `publish_results: true` uploads this
+   repository's grade to the public `api.scorecard.dev` dataset. Do it only
+   after reading a local run's SARIF and accepting the score; there is no
+   retraction. Only after a real run produces a grade does a README badge stop
+   being a claim about nothing.
+2. **Upload SARIF to code scanning** instead of an artifact. That needs code
+   scanning enabled on the repository plus `security-events: write` on the job.
+   Until it is enabled, adding the permission would fail the run.
+
+The MSRV inputs Scorecard's own analysis does not cover — `cargo-deny`'s
+`rust-version` and the published "Rust 1.95" requirement — are pinned to
+`Cargo.toml` by `scripts/open-source-contract.test.mjs`, and the declared
+minimum is compiled every run by the `Portable Rust (Linux)` job.
 Except for the temporary PR-only self-review bypass above, apply the rules to
 administrators unless an emergency procedure is documented in the incident
 record.
@@ -100,14 +146,16 @@ personal GitHub saved replies.
 
 ## Issue presentation
 
-Pin these three after the bootstrap creates them:
+The bootstrap pins these three (GitHub's maximum) after seeding them:
 
 1. `roadmap: Linux desktop packaging and parity`
-2. `adapter: add an Antigravity conformance transcript`
+2. `roadmap: decide and prove the Windows execution boundary`
 3. `docs: specify an OpenCode adapter before adding a crate`
 
-Confirm every issue has one state/area path, exact verification commands, and
-no internal planning codename.
+The pin phase re-probes GitHub after the seeding phase, so a first real run
+pins successfully; `--dry-run` reports "pin pending" because nothing was
+created. Confirm every issue has one state/area path, exact verification
+commands, and no internal planning codename.
 
 ## Community chat
 

@@ -10,7 +10,8 @@ impl MemoryKernel {
     /// drop the SQL rows.
     ///
     /// Processes rows in 1000-row batches so an arbitrarily large
-    /// backlog doesn't OOM. Pass [`DEFAULT_EVENTS_RETENTION_DAYS`]
+    /// backlog doesn't OOM. Pass
+    /// [`crate::memory::DEFAULT_EVENTS_RETENTION_DAYS`]
     /// for the standard 90-day horizon. Returns the total number
     /// of events moved off the hot table.
     pub async fn sweep_old_events(&self, retention_days: u32) -> Result<usize, MemoryError> {

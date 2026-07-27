@@ -12,8 +12,8 @@ function setPreviewControl({ playing, busy = false }) {
   previewButton.disabled = busy;
   previewButton.setAttribute("aria-pressed", String(playing));
   if (icon) icon.textContent = busy ? "…" : playing ? "■" : "▶";
-  if (title) title.textContent = busy ? "Loading preview" : playing ? "Stop preview" : "Play 15-second preview";
-  if (detail) detail.textContent = playing ? "return to the still frame" : "2.1 MB · recorded replay";
+  if (title) title.textContent = busy ? "Loading preview" : playing ? "Stop preview" : "Play 16-second preview";
+  if (detail) detail.textContent = playing ? "return to the still frame" : "2.1 MB · scripted replay";
 }
 
 previewButton?.addEventListener("click", () => {
@@ -26,22 +26,22 @@ previewButton?.addEventListener("click", () => {
   if (isPlaying) {
     previewImage.src = posterSrc;
     setPreviewControl({ playing: false });
-    if (previewStatus) previewStatus.textContent = "Recorded preview stopped.";
+    if (previewStatus) previewStatus.textContent = "Scripted preview stopped.";
     return;
   }
 
   setPreviewControl({ playing: false, busy: true });
-  if (previewStatus) previewStatus.textContent = "Loading the recorded preview.";
+  if (previewStatus) previewStatus.textContent = "Loading the scripted preview.";
   const animation = new Image();
   animation.onload = () => {
     previewImage.src = animation.src;
     setPreviewControl({ playing: true });
-    if (previewStatus) previewStatus.textContent = "Recorded preview playing.";
+    if (previewStatus) previewStatus.textContent = "Scripted preview playing.";
   };
   animation.onerror = () => {
     setPreviewControl({ playing: false });
     if (previewStatus) {
-      previewStatus.textContent = "Preview could not load. Open the full recorded replay instead.";
+      previewStatus.textContent = "Preview could not load. Open the full scripted replay instead.";
     }
   };
   animation.src = animationSrc;

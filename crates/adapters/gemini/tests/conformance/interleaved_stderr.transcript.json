@@ -1,0 +1,9 @@
+{
+  "lines": [
+    { "stream": "stdout", "text": "{\"type\":\"init\",\"timestamp\":\"2000-01-01T00:00:00.000Z\",\"session_id\":\"fixture-gemini-session-001\",\"model\":\"gemini-fixture-model\"}" },
+    { "stream": "stderr", "text": "warning: falling back to the default model" },
+    { "stream": "stdout", "text": "{\"type\":\"message\",\"timestamp\":\"2000-01-01T00:00:00.004Z\",\"role\":\"assistant\",\"content\":\"Summarized the synthetic fixture.\",\"delta\":true}" },
+    { "stream": "stdout", "text": "{\"type\":\"result\",\"timestamp\":\"2000-01-01T00:00:00.005Z\",\"status\":\"success\",\"stats\":{\"total_tokens\":40,\"input_tokens\":32,\"output_tokens\":8,\"cached\":0,\"input\":32,\"duration_ms\":1000,\"tool_calls\":1}}" }
+  ],
+  "finalize": "Clean"
+}

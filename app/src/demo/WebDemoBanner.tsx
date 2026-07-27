@@ -44,12 +44,12 @@ export default function WebDemoBanner() {
   };
 
   return (
-    <section className="web-demo-bar" aria-label="Recorded replay demo">
+    <section className="web-demo-bar" aria-label="Scripted replay demo">
       <div className="web-demo-copy">
-        <strong>Recorded replay</strong>
-        <span>Read-only events. Build locally for real vendor runs.</span>
+        <strong>Scripted replay</strong>
+        <span>Read-only, hand-authored events. Build locally for real vendor runs.</span>
       </div>
-      <div className="web-demo-scenarios" aria-label="Choose a recorded mission">
+      <div className="web-demo-scenarios" aria-label="Choose a scripted mission">
         {DEMO_RECORDINGS.map((candidate) => (
           <button
             key={candidate.id}

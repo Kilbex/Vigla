@@ -1,3 +1,16 @@
+// Canonical event streams for the read-only browser replay.
+//
+// These are hand-authored, not captured. No vendor CLI ever produced them: the
+// timestamps, costs, token counts, and test results below are values a human
+// chose to make three canonical trajectories (accepted, bound-tripped, quota-
+// paused) legible in the real Operations Room UI. They are valid
+// `event-schema` events and the UI rendering them is the production one, which
+// is the entire point — but nothing here is evidence about a real session, and
+// no public surface may describe it as a recording of one.
+//
+// The `recordedEvent` / `session` helper names predate that distinction and
+// are kept because they are load-bearing throughout this file.
+
 import type { Event, WorkerInfo } from "../bindings";
 
 export type DemoRecordingId = "happy" | "blocked" | "quota";

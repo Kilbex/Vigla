@@ -1,4 +1,10 @@
-export type SupervisorVendor = "claude";
+// The two supervisor values are the literal `supervisor_model` strings
+// the orchestrator routes on in `select_and_start_mission_with_memory`:
+// "claude" spawns the real Claude CLI, "auto" selects the scripted
+// mission runtime that drives the whole mission arc with no vendor CLI
+// at all. Keeping the wire value as the option value means the sticky
+// preference and the IPC payload can never disagree.
+export type SupervisorVendor = "claude" | "auto";
 export type WorkerVendor =
   | "claude"
   | "codex"
@@ -9,7 +15,10 @@ export type WorkerVendor =
 export type WorkerCliModelValue = string | null;
 export type WorkerCountChoice = "auto" | "1" | "2" | "3" | "4" | "5";
 
-export const SUPERVISOR_OPTIONS: readonly SupervisorVendor[] = ["claude"];
+export const SUPERVISOR_OPTIONS: readonly SupervisorVendor[] = [
+  "claude",
+  "auto",
+];
 export const WORKER_OPTIONS: readonly WorkerVendor[] = [
   "claude",
   "codex",
@@ -29,6 +38,16 @@ export const WORKER_COUNT_OPTIONS: readonly WorkerCountChoice[] = [
 
 export const MODEL_LABEL: Record<SupervisorVendor, string> = {
   claude: "Claude",
+  auto: "Mock (demo)",
+};
+
+// Helper text under the Supervisor select. The mock line has to be
+// blunt about scope: it is not a dry run — the mission branches, opens
+// worktrees, and commits in the chosen folder exactly like a real one.
+export const SUPERVISOR_DETAIL: Record<SupervisorVendor, string> = {
+  claude:
+    "Runs the claude CLI and spends its tokens. Additional real supervisor providers are roadmap work.",
+  auto: "Scripted supervisor and workers — no vendor CLI, no credentials, no token spend. The mission itself is real: branches, worktrees, and commits land in the selected folder.",
 };
 
 export const WORKER_LABEL: Record<WorkerVendor, string> = {

@@ -14,10 +14,17 @@
 //! `Vec<Event>` — that's the entire contract.
 
 #![deny(missing_debug_implementations)]
+#![deny(missing_docs)]
 
+/// Shared envelope, lifecycle, and drain-buffer scaffolding embedded
+/// by every vendor adapter.
 pub mod core;
+/// Parser for the `vigla_memory` protocol workers use to propose
+/// memory notes.
 pub mod memory_intent;
+/// Vendor-agnostic detection of quota-exhaustion messages.
 pub mod quota_signal;
+/// Fallback adapter for vendors with no machine-readable output.
 pub mod raw_log_adapter;
 
 pub use core::AdapterCore;
@@ -75,7 +82,10 @@ pub enum AdapterExit {
     /// Child exited with status 0.
     Clean,
     /// Child exited with a non-zero status code.
-    Failed { code: Option<i32> },
+    Failed {
+        /// The status code, when the platform reported one.
+        code: Option<i32>,
+    },
     /// Child was killed by signal (SIGKILL from supervisor stop, or
     /// any other signal).
     Killed,
@@ -95,6 +105,8 @@ pub enum AdapterExit {
 /// is the adapter's own monotonic counter — it does NOT have to
 /// match anything from the upstream CLI.
 pub trait Adapter: Send + Sync + std::fmt::Debug {
+    /// Ingest one line from `stream` and return the canonical events
+    /// it produces, if any.
     fn ingest_line(&mut self, line: &str, stream: LogStream) -> Vec<Event>;
 
     /// Optional hook called when the child process closes its stdout
@@ -169,6 +181,9 @@ pub trait Adapter: Send + Sync + std::fmt::Debug {
 /// vendor's configured window.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QuotaSignal {
+    /// Unix-epoch milliseconds when the vendor said the window
+    /// reopens. `None` when exhaustion was detected but no reset time
+    /// could be extracted.
     pub estimated_reset_at_ms: Option<u64>,
 }
 
@@ -178,14 +193,20 @@ pub struct QuotaSignal {
 /// `RequestSupervisor` action.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ContextRequestSignal {
+    /// What class of context the worker is missing.
     pub kind: ContextRequestSignalKind,
+    /// The worker's own description of what it wants.
     pub detail: String,
 }
 
+/// What a [`ContextRequestSignal`] is asking for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ContextRequestSignalKind {
+    /// The contents of a file the worker cannot reach.
     FileContent,
+    /// Reference documentation.
     Documentation,
+    /// A decision made earlier in the mission.
     PriorDecision,
 }
 

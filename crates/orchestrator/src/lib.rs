@@ -381,16 +381,122 @@ fn resolve_user_path_uncached(
     paths.join(":")
 }
 
-/// Default location for the Vigla SQLite database on macOS:
-/// `~/Library/Application Support/Vigla/vigla.sqlite`. Override via
-/// the `VIGLA_DB_PATH` env var (used in tests and developer setups).
+/// Default location for the Vigla SQLite database, following each
+/// platform's own application-data convention:
+///
+/// | Target | Path |
+/// |---|---|
+/// | macOS | `~/Library/Application Support/Vigla/vigla.sqlite` |
+/// | Windows | `%APPDATA%\Vigla\vigla.sqlite` |
+/// | Linux and every other Unix | `$XDG_DATA_HOME/vigla/vigla.sqlite`, else `~/.local/share/vigla/vigla.sqlite` |
+///
+/// XDG is the fallback for anything that is neither macOS nor Windows;
+/// there is no fourth shape.
+///
+/// The `VIGLA_DB_PATH` env var overrides all of them (used by tests
+/// and developer setups).
+///
+/// This is deliberately hand-rolled rather than pulled from a
+/// directories crate: the orchestrator is a portable crate with a tight
+/// dependency budget, and the whole rule is three branches. The macOS
+/// branch must keep producing the exact historical path — changing it
+/// would orphan every existing local database.
 pub fn default_db_path() -> PathBuf {
     if let Ok(override_path) = std::env::var("VIGLA_DB_PATH") {
         return PathBuf::from(override_path);
     }
+    app_data_root().join(DB_FILE_NAME)
+}
 
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
-    PathBuf::from(home).join("Library/Application Support/Vigla/vigla.sqlite")
+/// File name of the SQLite database inside the application-data root.
+const DB_FILE_NAME: &str = "vigla.sqlite";
+
+/// Which application-data convention a host follows. Deliberately a
+/// runtime value rather than a `#[cfg]` block: every arm then compiles
+/// and is unit-testable on every host, so the Linux rule is covered by
+/// the macOS developer loop and the macOS rule by the Linux CI job.
+/// The `cfg!` in [`AppDataConvention::host`] is the only place the
+/// target actually matters.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AppDataConvention {
+    /// `~/Library/Application Support/Vigla`.
+    AppleAppSupport,
+    /// `%APPDATA%\Vigla`.
+    WindowsRoamingAppData,
+    /// XDG Base Directory: `$XDG_DATA_HOME/vigla`.
+    XdgDataHome,
+}
+
+impl AppDataConvention {
+    /// The convention of the platform this binary was built for.
+    fn host() -> Self {
+        if cfg!(target_os = "macos") {
+            Self::AppleAppSupport
+        } else if cfg!(target_os = "windows") {
+            Self::WindowsRoamingAppData
+        } else {
+            Self::XdgDataHome
+        }
+    }
+
+    /// Environment variable naming the user's home directory.
+    fn home_var(self) -> &'static str {
+        match self {
+            Self::WindowsRoamingAppData => "USERPROFILE",
+            Self::AppleAppSupport | Self::XdgDataHome => "HOME",
+        }
+    }
+}
+
+/// Directory that holds the database (and any future sibling state)
+/// on this host.
+fn app_data_root() -> PathBuf {
+    app_data_root_for(AppDataConvention::host(), |key| std::env::var_os(key))
+}
+
+/// [`app_data_root`] with the convention and the environment injected,
+/// so every platform's rule is testable without mutating process state
+/// (which would race with every other test in this binary).
+fn app_data_root_for(
+    convention: AppDataConvention,
+    var: impl Fn(&str) -> Option<std::ffi::OsString>,
+) -> PathBuf {
+    match convention {
+        AppDataConvention::AppleAppSupport => {
+            home_dir_for(convention, &var).join("Library/Application Support/Vigla")
+        }
+        AppDataConvention::WindowsRoamingAppData => {
+            // %APPDATA% is the roaming application-data directory and
+            // is set for every interactive session. Fall back to a
+            // path under the profile directory rather than inventing a
+            // relative one.
+            match var("APPDATA") {
+                Some(appdata) if !appdata.is_empty() => PathBuf::from(appdata).join("Vigla"),
+                _ => home_dir_for(convention, &var).join("AppData/Roaming/Vigla"),
+            }
+        }
+        AppDataConvention::XdgDataHome => {
+            // $XDG_DATA_HOME wins, but only when it is an absolute
+            // path — the spec says a relative value must be treated as
+            // unset.
+            match var("XDG_DATA_HOME").map(PathBuf::from) {
+                Some(data_home) if data_home.is_absolute() => data_home.join("vigla"),
+                _ => home_dir_for(convention, &var).join(".local/share/vigla"),
+            }
+        }
+    }
+}
+
+/// The user's home directory, or `.` when the platform did not give us
+/// one. An unset home must not silently root state at `/`.
+fn home_dir_for(
+    convention: AppDataConvention,
+    var: impl Fn(&str) -> Option<std::ffi::OsString>,
+) -> PathBuf {
+    match var(convention.home_var()) {
+        Some(home) if !home.is_empty() => PathBuf::from(home),
+        _ => PathBuf::from("."),
+    }
 }
 
 #[cfg(test)]
@@ -515,6 +621,199 @@ mod tests {
         assert_eq!(p.to_string_lossy(), "/tmp/explicit-test-path.sqlite");
         unsafe {
             std::env::remove_var("VIGLA_DB_PATH");
+        }
+    }
+
+    /// Build an environment lookup from a fixed table. Nothing here
+    /// touches the real process environment, so these tests are safe
+    /// to run in parallel with everything else in this binary.
+    fn fake_env<'a>(
+        pairs: &'a [(&'a str, &'a str)],
+    ) -> impl Fn(&str) -> Option<std::ffi::OsString> + use<'a> {
+        move |key: &str| {
+            pairs
+                .iter()
+                .find(|(name, _)| *name == key)
+                .map(|(_, value)| std::ffi::OsString::from(*value))
+        }
+    }
+
+    /// A full environment covering every convention, so each case
+    /// below differs only in which convention it asks for.
+    const EVERY_HOME: &[(&str, &str)] = &[
+        ("HOME", "/home/tester"),
+        ("USERPROFILE", r"C:\Users\tester"),
+        ("APPDATA", r"C:\Users\tester\AppData\Roaming"),
+        ("XDG_DATA_HOME", "/srv/state"),
+    ];
+
+    /// macOS installs already hold a database at the historical path.
+    /// Pin it exactly: changing this string orphans every existing
+    /// local database.
+    #[test]
+    fn apple_convention_keeps_the_shipped_application_support_path() {
+        let root = app_data_root_for(
+            AppDataConvention::AppleAppSupport,
+            fake_env(&[("HOME", "/Users/op")]),
+        );
+        assert_eq!(
+            root.join(DB_FILE_NAME).to_string_lossy(),
+            "/Users/op/Library/Application Support/Vigla/vigla.sqlite"
+        );
+    }
+
+    /// The XDG rule resolves against `$XDG_DATA_HOME`. Target-independent
+    /// by construction — the convention is passed in — so it runs
+    /// everywhere; what ties a *target* to this rule is
+    /// [`tests::default_db_path_matches_the_build_target_convention`].
+    #[test]
+    fn xdg_convention_uses_data_home() {
+        let root = app_data_root_for(AppDataConvention::XdgDataHome, fake_env(EVERY_HOME));
+        assert_eq!(root, PathBuf::from("/srv/state/vigla"));
+    }
+
+    /// XDG says a relative `XDG_DATA_HOME` must be treated as unset.
+    #[test]
+    fn xdg_data_home_is_honoured_only_when_absolute() {
+        let relative = app_data_root_for(
+            AppDataConvention::XdgDataHome,
+            fake_env(&[
+                ("HOME", "/home/tester"),
+                ("XDG_DATA_HOME", "relative/state"),
+            ]),
+        );
+        assert_eq!(relative, PathBuf::from("/home/tester/.local/share/vigla"));
+
+        let unset = app_data_root_for(
+            AppDataConvention::XdgDataHome,
+            fake_env(&[("HOME", "/home/tester")]),
+        );
+        assert_eq!(unset, PathBuf::from("/home/tester/.local/share/vigla"));
+    }
+
+    /// Windows resolves against `%APPDATA%`, and falls back under the
+    /// user profile — never to a relative path.
+    #[test]
+    fn windows_convention_prefers_appdata_then_the_user_profile() {
+        let roaming = app_data_root_for(
+            AppDataConvention::WindowsRoamingAppData,
+            fake_env(EVERY_HOME),
+        );
+        assert_eq!(
+            roaming,
+            PathBuf::from(r"C:\Users\tester\AppData\Roaming").join("Vigla")
+        );
+
+        // An empty %APPDATA% is as good as unset.
+        let fallback = app_data_root_for(
+            AppDataConvention::WindowsRoamingAppData,
+            fake_env(&[("USERPROFILE", r"C:\Users\tester"), ("APPDATA", "")]),
+        );
+        assert_eq!(
+            fallback,
+            PathBuf::from(r"C:\Users\tester").join("AppData/Roaming/Vigla")
+        );
+    }
+
+    /// Windows reads `USERPROFILE`; the other conventions read `HOME`.
+    /// Getting this backwards would silently root state in `.`.
+    #[test]
+    fn each_convention_reads_its_own_home_variable() {
+        let env = fake_env(EVERY_HOME);
+        assert_eq!(
+            home_dir_for(AppDataConvention::AppleAppSupport, &env),
+            PathBuf::from("/home/tester")
+        );
+        assert_eq!(
+            home_dir_for(AppDataConvention::XdgDataHome, &env),
+            PathBuf::from("/home/tester")
+        );
+        assert_eq!(
+            home_dir_for(AppDataConvention::WindowsRoamingAppData, &env),
+            PathBuf::from(r"C:\Users\tester")
+        );
+    }
+
+    /// An empty or missing home variable must not produce a path
+    /// rooted at `/` — fall back to the working directory instead.
+    #[test]
+    fn missing_home_falls_back_to_the_working_directory() {
+        for convention in [
+            AppDataConvention::AppleAppSupport,
+            AppDataConvention::WindowsRoamingAppData,
+            AppDataConvention::XdgDataHome,
+        ] {
+            assert_eq!(home_dir_for(convention, fake_env(&[])), PathBuf::from("."));
+            assert_eq!(
+                home_dir_for(convention, fake_env(&[("HOME", ""), ("USERPROFILE", "")])),
+                PathBuf::from(".")
+            );
+        }
+    }
+
+    /// Each convention produces its whole documented path, file name
+    /// included. Asserting the full path rather than just
+    /// `file_name()` is the point: `join(DB_FILE_NAME).file_name()` is
+    /// `DB_FILE_NAME` for *any* receiver, so that weaker form would
+    /// pass even if the root collapsed to an empty path.
+    #[test]
+    fn every_convention_produces_its_documented_path() {
+        let expected = [
+            (
+                AppDataConvention::AppleAppSupport,
+                PathBuf::from("/home/tester/Library/Application Support/Vigla/vigla.sqlite"),
+            ),
+            (
+                AppDataConvention::WindowsRoamingAppData,
+                PathBuf::from(r"C:\Users\tester\AppData\Roaming").join("Vigla/vigla.sqlite"),
+            ),
+            (
+                AppDataConvention::XdgDataHome,
+                PathBuf::from("/srv/state/vigla/vigla.sqlite"),
+            ),
+        ];
+        for (convention, want) in expected {
+            let got = app_data_root_for(convention, fake_env(EVERY_HOME)).join(DB_FILE_NAME);
+            assert_eq!(got, want, "{convention:?}");
+        }
+    }
+
+    /// The one assertion that binds a *build target* to a *produced
+    /// path*, and the only one that can fail if the wiring in
+    /// [`app_data_root`] regresses to a single hardcoded convention.
+    ///
+    /// Every other test in this group injects the convention by hand,
+    /// so all of them would stay green if `app_data_root` went back to
+    /// always returning `Library/Application Support` — which is
+    /// exactly the defect this split was made to fix, and exactly what
+    /// the "Portable Rust (Linux)" CI job must catch.
+    #[test]
+    fn default_db_path_matches_the_build_target_convention() {
+        // `default_db_path` short-circuits on VIGLA_DB_PATH, and other
+        // tests in this binary set it. Assert on the composition
+        // underneath instead, which no test mutates.
+        let path = app_data_root().join(DB_FILE_NAME);
+        let shown = path.to_string_lossy();
+
+        assert_eq!(path.file_name().unwrap(), "vigla.sqlite", "{shown}");
+        if cfg!(target_os = "macos") {
+            assert!(
+                shown.contains("Library/Application Support/Vigla"),
+                "macOS must keep the historical path, got {shown}"
+            );
+        } else {
+            assert!(
+                !shown.contains("Application Support"),
+                "non-Apple targets must not produce a macOS path, got {shown}"
+            );
+            if cfg!(target_os = "windows") {
+                assert!(shown.contains("Vigla"), "{shown}");
+            } else {
+                assert!(
+                    shown.contains(".local/share/vigla") || shown.contains("/vigla/"),
+                    "expected an XDG data path, got {shown}"
+                );
+            }
         }
     }
 

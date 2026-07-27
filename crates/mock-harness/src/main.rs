@@ -5,7 +5,7 @@
 //! supervision pipeline (Step 5+) and by manual debugging from a shell.
 //!
 //! Args:
-//!   --script <name>   required: claude_happy | codex_blocked | gemini_happy | gemini_blocked | gemini_failed | gemini_terminal
+//!   --script <name>   required; `--help` lists every bundled script
 //!   --speed <factor>  default 1.0; 0.0 = instant; higher = faster
 //!   --worker-id <id>  override the synthetic worker_id stamped on events
 //!   --task-id <id>    override the synthetic task_id stamped on events
@@ -79,12 +79,21 @@ fn print_help() {
     );
     eprintln!();
     eprintln!("SCRIPTS:");
-    eprintln!("    claude_happy    planning → executing → reviewing → done");
-    eprintln!("    codex_blocked   executing → blocked → executing → done");
-    eprintln!("    gemini_happy    planning → executing → reviewing → done (gemini-flavored)");
-    eprintln!("    gemini_blocked  executing → blocked → executing → done (gemini-flavored)");
-    eprintln!("    gemini_failed   executing → failed (retryable: true)");
-    eprintln!("    gemini_terminal executing → failed (retryable: false)");
+    // Rendered from `Script::ALL` — a hand-written list here had already
+    // fallen a script behind the enum.
+    let width = Script::ALL
+        .iter()
+        .map(|script| script.name().len())
+        .max()
+        .unwrap_or(0);
+    for script in Script::ALL {
+        eprintln!(
+            "    {:width$}  {}",
+            script.name(),
+            script.description(),
+            width = width
+        );
+    }
     eprintln!();
     eprintln!("FLAGS:");
     eprintln!("    --speed <f>     1.0 = real-time, 0.0 = instant, higher = faster");

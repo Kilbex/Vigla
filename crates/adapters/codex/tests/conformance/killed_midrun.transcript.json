@@ -1,0 +1,8 @@
+{
+  "lines": [
+    { "stream": "stdout", "text": "{\"type\":\"thread.started\",\"thread_id\":\"fixture-codex-thread-001\"}" },
+    { "stream": "stdout", "text": "{\"type\":\"turn.started\"}" },
+    { "stream": "stdout", "text": "{\"type\":\"item.started\",\"item\":{\"id\":\"fixture-item-command-001\",\"type\":\"command_execution\",\"command\":\"printf synthetic-fixture\",\"aggregated_output\":\"\",\"exit_code\":null,\"status\":\"in_progress\"}}" }
+  ],
+  "finalize": "Killed"
+}

@@ -4,9 +4,10 @@
 //! load a Markdown file at startup and treat HTML comments as
 //! invisible. We exploit that by giving every vendor the same anchor
 //! delimiters and the same body format. Differences are confined to
-//! the [`MemoryAdapter::native_file_name`] return value and the
-//! [`MemoryAdapter::vendor`] tag — the bytes between the anchors are
-//! produced by a single function.
+//! the [`crate::memory::adapter::MemoryAdapter::native_file_name`]
+//! return value and the
+//! [`crate::memory::adapter::MemoryAdapter::vendor`] tag — the bytes
+//! between the anchors are produced by a single function.
 //!
 //! Keeping rendering centralised means:
 //!

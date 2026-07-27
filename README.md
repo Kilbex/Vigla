@@ -24,10 +24,10 @@ mission reversible in one click.
 [Contributing](./CONTRIBUTING.md)
 
 <a href="https://kilbex.github.io/Vigla/demo/">
-  <img src="docs/media/vigla-demo.webp" width="1280" alt="Recorded Vigla mission replay: cross-vendor AI coding agents execute in parallel, pause at an authority bound, and finish with an audited verdict in the Operations Room" />
+  <img src="docs/media/vigla-demo.webp" width="1280" alt="Vigla mission replay driven by a scripted canonical event stream: cross-vendor AI coding agents execute in parallel, pause at an authority bound, and finish with an audited verdict in the Operations Room" />
 </a>
 
-<sub>Deterministic recorded events · no account or credentials · click to open the interactive replay</sub>
+<sub>Scripted canonical events · no credentials, no vendor calls · click to open the interactive replay</sub>
 
 </div>
 
@@ -65,14 +65,17 @@ are public and CI-checked.
 
 [Open the read-only browser replay](https://kilbex.github.io/Vigla/demo/) to
 step through accepted, bound-tripped, and quota-paused missions in the real
-Operations Room UI. It runs entirely on recorded canonical events: no account,
-vendor CLI, credentials, or network-backed agent is involved.
+Operations Room UI. The three event streams are hand-authored canonical
+`event-schema` events committed in `app/src/demo/recordings.ts` — a scripted,
+deterministic replay, not a capture of a real vendor session. The UI is the
+production one; no account, vendor CLI, credential, or network-backed agent is
+involved.
 
 ### Run the credential-free demo locally
 
-Vigla ships with a deterministic mock harness, so you can watch a full
-mission — decomposition, parallel workers, audit, verdict — without
-credentials or token spend:
+Vigla ships a mock supervisor, so you can watch a whole mission —
+decomposition, parallel workers, integration, audit, verdict — with no vendor
+CLI, no credentials, and no token spend:
 
 ```sh
 git clone https://github.com/Kilbex/Vigla.git && cd Vigla
@@ -80,10 +83,44 @@ pnpm install --frozen-lockfile
 ./scripts/dev.sh
 ```
 
-When the Operations Room window opens, use the **Deploy** panel and pick
-a bundled mock script. The deterministic scenarios cover happy paths,
-blocked work, failures, and quota exhaustion — including the unhappy paths
-most demos hide.
+When the Operations Room window opens:
+
+1. In the **DEPLOY WORKERS** panel, describe the work under *What should the
+   team do?*
+2. Click **Choose folder…** and pick a Git repository.
+3. Expand **Advanced**.
+4. Set the **Supervisor** dropdown to **Mock (demo)** — the only other choice
+   is **Claude**.
+5. Click **Start mission**. A notice above the button confirms the mock is
+   armed.
+
+The choice is sticky per machine and defaults to **Claude**, so the demo is
+opt-in and nobody gets it by accident.
+
+**The mock mission is not a dry run.** It spends nothing and reads no
+credential — no vendor CLI process is launched and no API key or login is
+read — but it drives the real mission machinery against the folder you chose:
+it creates a supervisor branch and worktree, a branch and worktree per worker,
+writes files, and makes real `git commit`s, then integrates each worker's work
+and stops at a pending-merge decision you **Merge** or **Discard** from the
+mission overlay. (The review queue is a different surface: it triages
+individual worker submissions, not the mission verdict.) Point it at a scratch
+repository or a branch you don't mind.
+
+It shows the happy-path arc only. Every task takes a clean first pass by
+construction, so a mock mission can never produce a blocked, failed,
+retry-exhausted, or quota-exhausted trajectory, and Plan mode *Review* has no
+effect on it — the mock runtime never pauses for plan approval. The unhappy
+paths live in two other places:
+
+- the [browser replay](https://kilbex.github.io/Vigla/demo/), which scripts
+  accepted, bound-tripped, and quota-paused missions;
+- the seven bundled mock-harness scripts — `claude_happy`, `codex_blocked`,
+  `gemini_happy`, `gemini_blocked`, `gemini_failed`, `gemini_terminal`,
+  `claude_quota_exhausted` — each of which drives a single **worker**, not a
+  mission. Run `mock-harness --help` for the trajectory each one takes, or
+  spawn them from **Settings → Developer → Mock spawn** in a development build
+  (`import.meta.env.DEV`, or `VITE_VIGLA_E2E=1`).
 
 Prereqs: macOS 12+, [Rust 1.95](./rust-toolchain.toml) via rustup,
 Node 22, pnpm 10, Xcode Command Line Tools. See
@@ -166,17 +203,25 @@ internal implementation is impossible.
 ## Vendor support
 
 Real workers are driven from the in-app Deploy panel; the mock harness
-covers demos and CI. Integration tests are the authoritative
-verification path for the fully gated vendors.
+covers demos and CI. Two independent tiers of evidence back a vendor, and
+they are not interchangeable:
 
-| Vendor | Binary | Role | Verification |
-|---|---|---|---|
-| Claude Code | `claude` | supervisor + worker; session retry / continue | `real_claude_gate.rs`, `supervisor_live.rs` |
-| Codex CLI | `codex` | worker | `real_codex_run.rs`, `supervisor_live.rs` |
-| Antigravity | `agy` | profile-backed worker | `real_antigravity_run.rs` |
-| Gemini CLI | `gemini` | legacy / enterprise worker | `supervisor_live.rs` |
-| Kiro | `kiro-cli` | profile-backed worker | end-to-end verification pending |
-| GitHub Copilot | `copilot` | profile-backed worker | end-to-end verification pending |
+- **Adapter goldens (CI).** Committed transcript-and-golden pairs run through
+  the shared `vigla-adapter-conformance` harness on every pull request. They
+  pin the byte-to-event contract. They prove nothing about the vendor binary.
+- **Real-CLI gate (local, opt-in).** An `#[ignore]`d integration test that
+  spawns the actual CLI against a failing fixture repository and asserts the
+  agent fixed the defect. It needs a working binary and credentials, so **no
+  CI workflow runs it** — a maintainer runs it by hand.
+
+| Vendor | Binary | Role | Real-CLI gate (local, opt-in) | Adapter goldens (CI) |
+|---|---|---|---|---|
+| Claude Code | `claude` | supervisor + worker; session retry / continue | `real_claude_gate.rs`, `supervisor_live.rs` | 6 conformance cases + `from_fixture.rs` |
+| Codex CLI | `codex` | worker | `real_codex_run.rs`, `supervisor_live.rs` | 4 conformance cases + `from_fixture.rs` |
+| Antigravity | `agy` | profile-backed worker | `real_antigravity_run.rs` | 4 conformance cases |
+| Gemini CLI | `gemini` | legacy / enterprise worker | `supervisor_live.rs` | 4 conformance cases + `from_fixture.rs` |
+| Kiro | `kiro-cli` | profile-backed worker | none yet | 4 conformance cases |
+| GitHub Copilot | `copilot` | profile-backed worker | none yet | 4 conformance cases |
 
 Google ended consumer **Login with Google** access for Gemini CLI on
 2026-06-18. Vigla retains the adapter for existing enterprise and legacy
@@ -184,23 +229,33 @@ configurations, but Gemini CLI is no longer a primary launch path. Google
 directs affected consumer users to Antigravity in its
 [official deprecation notice](https://developers.google.com/gemini-code-assist/docs/deprecations/code-assist-individuals).
 
-Mission supervision is Claude-backed today; non-Claude supervisor
-options should be treated as experimental until their end-to-end tests
-land. Vigla does not pin vendor CLI versions — the launch path
-verifies each configured binary, and the (`#[ignore]`-gated) real-CLI
-integration tests track adapter compatibility:
+**Mission supervision is Claude-only today.** The Supervisor dropdown offers
+exactly two values — *Claude* (spawns the real `claude` CLI) and *Mock (demo)*
+(the scripted runtime, no vendor process) — and `host_services` rejects any
+other `supervisor_model` with `UnsupportedSupervisorModel`. There is no
+experimental non-Claude supervisor to opt into; a second *real* supervisor is
+[roadmap work](./ROADMAP.md). Vigla does not pin vendor CLI versions — the
+launch path verifies each configured binary, and the real-CLI gates track
+adapter compatibility:
 
 ```sh
 cargo test -p vigla-orchestrator --test real_claude_gate -- --ignored --nocapture
 cargo test -p vigla-orchestrator --test real_codex_run   -- --ignored --nocapture
 cargo test -p vigla-orchestrator --test real_antigravity_run -- --ignored --nocapture --test-threads=1
-cargo test -p vigla-orchestrator --test supervisor_live  -- --ignored --nocapture
+VIGLA_LIVE=1 cargo test -p vigla-orchestrator --test supervisor_live -- --ignored --nocapture
 ```
 
-The Claude, Codex, and supervisor gates use `tests/samples/sandbox/`, a
-workspace-excluded crate with a deliberately wrong `multiply` function. The
-Antigravity gate creates the same kind of isolated failing Rust fixture in a
-temporary repository. Each gate asserts that the agent fixed the defect.
+`VIGLA_LIVE=1` is not optional on the last line: without it every test in
+`supervisor_live.rs` prints a skip line and passes, so the gate looks green
+without having run.
+
+The Claude and Codex gates use `tests/samples/sandbox/`, a workspace-excluded
+crate with a deliberately wrong `multiply` function. The Antigravity gate
+creates the same kind of isolated failing Rust fixture in a temporary
+repository. Each of those three asserts that the agent fixed the defect. The
+supervisor gate builds its own throwaway repositories instead — a wrong `add`,
+a broken test, and a docs task — and asserts that a real `claude` supervisor
+drives each mission to a completed, audited verdict.
 
 ## Feature tour
 
@@ -230,9 +285,9 @@ temporary repository. Each gate asserts that the agent fixed the defect.
 <details>
 <summary><b>Worker execution</b></summary>
 
-- **Real CLI and mock workers** — Claude Code, Codex CLI, verified
-  Antigravity, legacy Gemini CLI, profile-backed Kiro / Copilot, plus
-  deterministic mock workers for development and demos.
+- **Real CLI and mock workers** — Claude Code, Codex CLI, Antigravity,
+  legacy Gemini CLI, profile-backed Kiro / Copilot, plus deterministic mock
+  workers for development and demos.
 - **Isolated worktrees** — each worker gets its own git worktree and
   branch; work is inspected, merged, discarded, or reverted without
   touching your main checkout.
@@ -330,9 +385,18 @@ git.
 
 | Path | What | Override |
 |---|---|---|
-| `~/Library/Application Support/Vigla/vigla.sqlite` | Events, missions, workers, memory index | `VIGLA_DB_PATH` |
-| `<repo>/.vigla/memory/notes/` | Long-term memory notes (Markdown), one store per repo | rooted at the repo's canonical git root, not under `VIGLA_DB_PATH` |
+| `~/Library/Application Support/Vigla/vigla.sqlite` | Worker events, missions, workers, audit summaries, quota state | `VIGLA_DB_PATH` |
+| `<repo>/.vigla/memory/memory.sqlite` | Memory index (notes, witnesses, bundles), one store per repo | rooted at the repo's canonical git root, not under `VIGLA_DB_PATH` |
+| `<repo>/.vigla/memory/notes/` | Long-term memory note bodies (Markdown), alongside the index | same repo root |
 | `~/Library/Logs/Vigla/vigla.log.YYYY-MM-DD` | Rolling daily structured logs | managed by `tracing-appender` |
+
+The desktop app is macOS-only, so those are the paths you will actually
+see. The orchestrator crate is portable and resolves the database
+against the host platform's own convention, which is what the Linux CI
+job exercises: `$XDG_DATA_HOME/vigla/vigla.sqlite` (default
+`~/.local/share/vigla/vigla.sqlite`) on Linux, and
+`%APPDATA%\Vigla\vigla.sqlite` on Windows. `VIGLA_DB_PATH` overrides
+all of them.
 
 </details>
 
@@ -380,8 +444,12 @@ schema, and per-vendor adapters.
 
 ## Build a local DMG
 
-Vigla does not publish maintainer-built binaries. On a Mac, clone the source and
-run one command:
+Vigla publishes no maintainer-built binaries today: there is no signing
+identity, notarization credential, or update channel to trust, and the only
+supported artifact is the one your machine produces. (A Mac App Store release
+would replace that trust model with Apple's; whether to make that trade is
+[undecided and under investigation](./docs/roadmap/mac-app-store.md).) On a
+Mac, clone the source and run one command:
 
 ```sh
 ./scripts/build.sh
@@ -404,9 +472,9 @@ cache; if that download is unavailable, retrieval falls back to local BM25.
 
 Design trade-offs in the current build, not bugs:
 
-- **Real supervisor execution is Claude-gated.** The production
-  mission-supervisor path and its end-to-end verification are
-  Claude-backed today.
+- **Real supervisor execution is Claude-only.** `supervisor_model` accepts
+  `claude` (the real CLI) or `auto` (the scripted mock); everything else is
+  rejected. Cross-vendor applies to workers, not to the supervisor.
 - **Memory retrieval is local and best-effort.** Alias-expanded BM25
   with optional embedding / hybrid re-ranking; degrades to lexical
   retrieval instead of blocking workers.

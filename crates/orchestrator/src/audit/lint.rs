@@ -2,7 +2,7 @@
 //!
 //! Each tool is shelled out; missing tool = unscored (None), not 0.0,
 //! so a project without the tool installed doesn't get penalised.
-//! Final score routed through [`crate::audit::report::clamp_score`].
+//! Final score routed through `crate::audit::report::clamp_score`.
 
 use crate::audit::process::{output_with_timeout, TimedCommandError};
 use crate::audit::report::{clamp_score, LintScore};
@@ -177,7 +177,7 @@ fn unscored_lint() -> LintScore {
 /// Parse Biome's "Found N errors, M warnings" summary line.
 ///
 /// Biome's `check` command always ends with a single summary line of
-/// the form "Found <n> errors, <m> warnings" (or similar). Counting
+/// the form `Found <n> errors, <m> warnings` (or similar). Counting
 /// raw stderr lines is wrong because the summary itself is one line
 /// while each diagnostic spans multiple lines. We extract the
 /// numbers from the summary directly.

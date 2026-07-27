@@ -23,7 +23,7 @@ test.describe("read-only web replay", () => {
   test("plays, steps, scrubs, and switches between all recorded outcomes", async ({
     e2ePage: page,
   }) => {
-    await expect(page.getByRole("region", { name: "Recorded replay demo" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Scripted replay demo" })).toBeVisible();
     await expect(page.locator(".app-grid")).toHaveAttribute("inert", "");
 
     await expect(page.locator(".station")).toHaveCount(3);

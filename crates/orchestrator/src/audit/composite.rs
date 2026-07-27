@@ -4,7 +4,7 @@
 //! Default weights match the T2 quality floor described in the
 //! roadmap (0.7 is the supervisor-as-arbiter default acceptance
 //! threshold). Unscored sub-scores (None) contribute 0 weight.
-//! Final result routed through [`crate::audit::report::clamp_score`]
+//! Final result routed through `crate::audit::report::clamp_score`
 //! to inherit the NaN guard.
 
 use crate::audit::report::{clamp_score, AuditReport};

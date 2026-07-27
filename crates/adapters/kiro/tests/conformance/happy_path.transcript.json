@@ -1,0 +1,9 @@
+{
+  "lines": [
+    { "stream": "stdout", "text": "kiro: spec demo-app loaded from /Users/alice/src/demo-app" },
+    { "stream": "stdout", "text": "kiro: implementing task 1 of 1" },
+    { "stream": "stdout", "text": "" },
+    { "stream": "stderr", "text": "kiro: 1 file changed" }
+  ],
+  "finalize": "Clean"
+}

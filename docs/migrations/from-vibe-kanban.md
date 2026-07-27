@@ -33,7 +33,9 @@ card.
 - an independent audit decision before integration;
 - a structured verdict with tests and residual risk;
 - staged integration snapshots plus target-branch whole-mission revert;
-- deterministic replay and credential-free failure scenarios.
+- deterministic replay of scripted canonical events, and credential-free
+  failure scenarios from the bundled single-worker mock scripts (the mock
+  *mission* itself takes the happy path only).
 
 ## What Vigla does not replace
 
@@ -46,8 +48,11 @@ existing installation available until the evaluation is complete.
 
 1. Open the [read-only browser replay](https://kilbex.github.io/Vigla/demo/)
    and exercise all three outcomes.
-2. Clone Vigla and run the credential-free mock mission against a disposable
-   test repository.
+2. Clone Vigla and run the credential-free mock mission — Deploy → Advanced →
+   **Supervisor: Mock (demo)** — against a **disposable test repository**. The
+   mock supervisor launches no vendor CLI and spends nothing, but the mission
+   is real: it creates branches and worktrees and makes real commits in the
+   folder you choose.
 3. Compare the completion verdict and revert path with one representative
    board task; do not start with production work.
 4. Build the local DMG from source only if that mission-level workflow fits.

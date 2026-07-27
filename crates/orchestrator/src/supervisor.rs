@@ -30,7 +30,7 @@ use tokio::task::JoinHandle;
 /// Error type for the supervisor surface.
 #[derive(Debug, Error)]
 pub enum SupervisorError {
-    #[error("unknown script {0:?}; expected one of: claude_happy, codex_blocked, gemini_happy, gemini_blocked, gemini_failed, gemini_terminal")]
+    #[error("unknown script {0:?}; expected one of: {names}", names = bundled_script_names())]
     UnknownScript(String),
 
     #[error("mock-harness binary not found at {0}")]
@@ -118,27 +118,84 @@ pub enum RetryPolicy {
     OnFailure { max_attempts: u32, base_ms: u64 },
 }
 
+/// One bundled mock-harness trajectory: the `--script` name, the vendor
+/// its events are stamped with, and the placeholder title used when a
+/// call site dispatches it without one.
+struct BundledScript {
+    name: &'static str,
+    vendor: Vendor,
+    task_title: &'static str,
+}
+
+/// The mock-harness catalogue as the orchestrator sees it. The harness
+/// is spawned as a sibling binary rather than linked, so this crate
+/// cannot reach `mock_harness::Script` — the names are restated here and
+/// every entry must match a `Script::name()` arm in
+/// `crates/mock-harness/src/lib.rs`. `UnknownScript`, `vendor_for_script`
+/// and `default_task_title` all read this table, so the three can no
+/// longer disagree: they previously covered six of the seven scripts and
+/// `claude_quota_exhausted` was undispatchable.
+const BUNDLED_SCRIPTS: &[BundledScript] = &[
+    BundledScript {
+        name: "claude_happy",
+        vendor: Vendor::Claude,
+        task_title: "Add retry to fetcher",
+    },
+    BundledScript {
+        name: "codex_blocked",
+        vendor: Vendor::Codex,
+        task_title: "Apply schema migration",
+    },
+    BundledScript {
+        name: "gemini_happy",
+        vendor: Vendor::Gemini,
+        task_title: "Refactor auth middleware",
+    },
+    BundledScript {
+        name: "gemini_blocked",
+        vendor: Vendor::Gemini,
+        task_title: "Update API docs after spec",
+    },
+    BundledScript {
+        name: "gemini_failed",
+        vendor: Vendor::Gemini,
+        task_title: "Add expired-token test",
+    },
+    BundledScript {
+        name: "gemini_terminal",
+        vendor: Vendor::Gemini,
+        task_title: "Audit r5 retry gate",
+    },
+    BundledScript {
+        name: "claude_quota_exhausted",
+        vendor: Vendor::Claude,
+        task_title: "Observe quota exhaustion",
+    },
+];
+
+fn bundled_script(script: &str) -> Option<&'static BundledScript> {
+    BUNDLED_SCRIPTS.iter().find(|entry| entry.name == script)
+}
+
+fn bundled_script_names() -> String {
+    BUNDLED_SCRIPTS
+        .iter()
+        .map(|entry| entry.name)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 fn default_task_title(script: &str) -> String {
-    match script {
-        "claude_happy" => "Add retry to fetcher".into(),
-        "codex_blocked" => "Apply schema migration".into(),
-        "gemini_happy" => "Refactor auth middleware".into(),
-        "gemini_blocked" => "Update API docs after spec".into(),
-        "gemini_failed" => "Add expired-token test".into(),
-        "gemini_terminal" => "Audit r5 retry gate".into(),
-        other => format!("Mock task ({other})"),
+    match bundled_script(script) {
+        Some(entry) => entry.task_title.to_owned(),
+        None => format!("Mock task ({script})"),
     }
 }
 
 fn vendor_for_script(script: &str) -> Result<Vendor, SupervisorError> {
-    match script {
-        "claude_happy" => Ok(Vendor::Claude),
-        "codex_blocked" => Ok(Vendor::Codex),
-        "gemini_happy" | "gemini_blocked" | "gemini_failed" | "gemini_terminal" => {
-            Ok(Vendor::Gemini)
-        }
-        other => Err(SupervisorError::UnknownScript(other.to_owned())),
-    }
+    bundled_script(script)
+        .map(|entry| entry.vendor)
+        .ok_or_else(|| SupervisorError::UnknownScript(script.to_owned()))
 }
 
 struct RunningWorker {
@@ -204,7 +261,7 @@ pub struct Supervisor {
 impl Supervisor {
     /// Build a Supervisor wrapped in `Arc`. `user_sink` is the raw
     /// frontend-facing sink; every supervise path wraps it in a
-    /// [`CoordinatingSink`] at run time via [`Self::coordinating_sink`]
+    /// `CoordinatingSink` at run time via `Self::coordinating_sink`
     /// so the supervisor sees the same events the frontend sees.
     pub fn new(
         repo: Repository,
@@ -288,7 +345,7 @@ impl Supervisor {
         }
     }
 
-    /// Wrap `self.sink` in a [`CoalescingSink`] (UI/IPC throughput
+    /// Wrap `self.sink` in a [`crate::CoalescingSink`] (UI/IPC throughput
     /// shaping) and then in a [`CoordinatingSink`] (supervisor
     /// coordination side effects). Both `supervise` (mock path) and
     /// `supervise_with_adapter` (real-CLI path) MUST call this — the
@@ -399,3 +456,39 @@ fn vendor_short_name(v: Vendor) -> &'static str {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod bundled_script_tests {
+    use super::*;
+
+    #[test]
+    fn every_bundled_script_resolves_a_vendor_and_a_task_title() {
+        for entry in BUNDLED_SCRIPTS {
+            assert_eq!(vendor_for_script(entry.name).unwrap(), entry.vendor);
+            assert_eq!(default_task_title(entry.name), entry.task_title);
+        }
+    }
+
+    #[test]
+    fn the_quota_exhausted_script_is_dispatchable() {
+        // The catalogue used to stop at `gemini_terminal`, so dispatching
+        // the seventh bundled trajectory failed with UnknownScript before
+        // a worker was ever spawned.
+        assert_eq!(
+            vendor_for_script("claude_quota_exhausted").unwrap(),
+            Vendor::Claude
+        );
+    }
+
+    #[test]
+    fn the_unknown_script_error_names_every_bundled_script() {
+        let message = SupervisorError::UnknownScript("nope".into()).to_string();
+        for entry in BUNDLED_SCRIPTS {
+            assert!(
+                message.contains(entry.name),
+                "{message} omits {}",
+                entry.name
+            );
+        }
+    }
+}

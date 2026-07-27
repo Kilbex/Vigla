@@ -11,21 +11,32 @@ use event_schema::{Event, EventKind, StateChange, WorkerState, SCHEMA_VERSION};
 /// adapter; the vendor struct keeps only its parsing-specific state.
 #[derive(Debug)]
 pub struct AdapterCore {
+    /// Worker id stamped onto every event this core makes.
     pub worker_id: String,
+    /// Task id stamped onto every event, when the run is scoped to a
+    /// task.
     pub task_id: Option<String>,
+    /// Next sequence number. Monotonic; `make` post-increments it.
     pub seq: u64,
+    /// Whether the opening `Idle` state change has been emitted.
     pub initial_idle_emitted: bool,
+    /// Whether the `Idle` → `Executing` transition has been emitted.
     pub started: bool,
     /// Set once a terminal (`Done`/`Failed`) state is emitted so
     /// `finalize` doesn't synthesize a second terminal event. (Codex
     /// previously called this `finalized`.)
     pub terminal_emitted: bool,
+    /// Vendor session id awaiting collection by
+    /// [`AdapterCore::take_session_id`].
     pub pending_session_id: Option<String>,
+    /// Memory intents accumulated since the last drain.
     pub pending_memory_intents: Vec<MemoryIntent>,
+    /// Quota signal awaiting collection, if the vendor reported one.
     pub pending_quota_signal: Option<QuotaSignal>,
 }
 
 impl AdapterCore {
+    /// Start a fresh core for `worker_id`, numbering events from 0.
     pub fn new(worker_id: impl Into<String>, task_id: Option<String>) -> Self {
         Self::with_starting_seq(worker_id, task_id, 0)
     }
@@ -51,6 +62,8 @@ impl AdapterCore {
         }
     }
 
+    /// Wrap `kind` in a fully-stamped envelope and consume one
+    /// sequence number.
     pub fn make(&mut self, kind: EventKind) -> Event {
         let event = Event {
             schema_version: SCHEMA_VERSION.to_string(),
@@ -64,6 +77,8 @@ impl AdapterCore {
         event
     }
 
+    /// Push the opening `Idle` state change onto `out` the first time
+    /// it is called; a no-op afterwards.
     pub fn ensure_idle(&mut self, out: &mut Vec<Event>) {
         if !self.initial_idle_emitted {
             out.push(self.make(EventKind::StateChange(StateChange {
@@ -75,6 +90,8 @@ impl AdapterCore {
         }
     }
 
+    /// Push `Idle` then `Idle` → `Executing` onto `out` the first time
+    /// it is called; a no-op afterwards.
     pub fn ensure_started(&mut self, out: &mut Vec<Event>) {
         self.ensure_idle(out);
         if !self.started {
@@ -87,14 +104,17 @@ impl AdapterCore {
         }
     }
 
+    /// Drain the captured vendor session id, leaving `None` behind.
     pub fn take_session_id(&mut self) -> Option<String> {
         self.pending_session_id.take()
     }
 
+    /// Drain accumulated memory intents, leaving the buffer empty.
     pub fn take_memory_intents(&mut self) -> Vec<MemoryIntent> {
         std::mem::take(&mut self.pending_memory_intents)
     }
 
+    /// Drain the pending quota signal, leaving `None` behind.
     pub fn take_quota_signal(&mut self) -> Option<QuotaSignal> {
         self.pending_quota_signal.take()
     }

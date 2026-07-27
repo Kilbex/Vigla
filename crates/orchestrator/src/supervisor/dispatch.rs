@@ -40,7 +40,7 @@ impl Supervisor {
     /// every `depends_on` task has reached completion.
     ///
     /// The deps check + push must run under the `pending` lock to avoid
-    /// a TOCTOU race against [`Self::drain_pending`]: if dep `A`
+    /// a TOCTOU race against `Self::drain_pending`: if dep `A`
     /// completed between an earlier "deps not satisfied" read and the
     /// push, the simultaneous drain saw an empty queue and the entry
     /// would have stayed pending forever. Acquiring `pending` first
@@ -371,7 +371,8 @@ impl Supervisor {
 
     /// Mark a task complete and drain any pending dispatches whose
     /// dependencies are now satisfied. Called from
-    /// [`CoordinatingSink::emit`] when a `completion` event lands.
+    /// [`super::coordination::CoordinatingSink`]'s `emit` when a
+    /// `completion` event lands.
     pub(super) async fn on_task_completed(self: &Arc<Self>, task_id: &str) {
         {
             let mut done = self.completed_tasks.lock().await;

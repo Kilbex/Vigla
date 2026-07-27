@@ -12,7 +12,7 @@ When filing these as GitHub issues, use labels such as `good first issue`,
 | --- | --- | --- | --- |
 | Add one legacy Gemini fixture covering a failed command | Improves confidence in the maintained compatibility path | `crates/adapters/gemini/tests/fixtures/`, `crates/adapters/gemini/tests/from_fixture.rs` | `good first issue`, `adapter`, `test` |
 | Add one Codex fixture with tool output and no file changes | Clarifies no-op completion behavior | `crates/adapters/codex/tests/fixtures/`, `crates/adapters/codex/tests/from_fixture.rs` | `good first issue`, `adapter`, `test` |
-| Add an Antigravity transcript to the conformance harness | Locks the current line-oriented fallback contract to a reviewed golden | `crates/adapters/antigravity/tests/conformance*` | `good first issue`, `adapter`, `test` |
+| Add an `interleaved_stderr` conformance case to the Antigravity, Kiro, or Copilot adapter | The three raw-log adapters have `happy_path`, `quota_exhaustion`, `killed_midrun`, and `silent_worker`, but nothing pins stdout/stderr ordering the way the Claude, Codex, and Gemini suites do | `crates/adapters/<vendor>/tests/conformance.rs`, `crates/adapters/<vendor>/tests/conformance/` | `good first issue`, `adapter`, `test` |
 | Draft an Opencode adapter proposal | Defines scope before creating a new workspace crate | `docs/adapters/opencode.md` | `good first issue`, `adapter`, `planning` |
 | Add a malformed-line fixture for one adapter | Prevents parser regressions on noisy CLI output | one `crates/adapters/<vendor>/tests/*` file | `good first issue`, `adapter`, `resilience` |
 
@@ -20,7 +20,7 @@ When filing these as GitHub issues, use labels such as `good first issue`,
 
 | Task | Why it helps | Expected files | Suggested labels |
 | --- | --- | --- | --- |
-| Expand the "Real CLI adapters" section with troubleshooting | Helps users set PATH and credentials correctly | `README.md` | `good first issue`, `documentation` |
+| Expand the "Vendor support" section with real-CLI troubleshooting | Helps users set PATH and credentials correctly | `README.md` | `good first issue`, `documentation` |
 | Add a glossary entry for one mission event | Makes frontend and adapter vocabulary clearer | `ARCHITECTURE.md` or a future docs file | `good first issue`, `documentation` |
 
 ## Code Tasks

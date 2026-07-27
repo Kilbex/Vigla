@@ -34,10 +34,13 @@ claiming it cannot exist.
 
 ## Does “cross-vendor” include the supervisor?
 
-Workers are cross-vendor today. Production supervisor execution is
-Claude-backed and explicitly listed as a current limitation. The supervisor
-playbook is vendor-neutral in design, but a different supervisor does not
-count as supported until its end-to-end gate exists.
+No. Workers are cross-vendor; supervision is Claude-only. `supervisor_model`
+accepts exactly two values — `claude`, which spawns the real Claude CLI, and
+`auto`, the scripted mock that launches no vendor process — and
+`host_services` rejects anything else with `UnsupportedSupervisorModel`. There
+is no experimental non-Claude supervisor to enable. The supervisor playbook is
+vendor-neutral in design, but a second real supervisor does not exist until
+its end-to-end gate does.
 
 ## What happened to Gemini CLI support?
 
@@ -49,11 +52,44 @@ the [README](../README.md#vendor-support).
 ## Won't vendor CLI changes break an orchestrator?
 
 They can break adapters, which is why the boundary is deliberately narrow. A
-vendor adapter is a pure crate that translates CLI bytes into canonical events
-and is pinned by redacted golden fixtures plus a shared conformance suite.
-Process management, mission policy, and persistence do not depend on a
-vendor-specific parser. Real-CLI gates catch integration drift that fixtures
-cannot.
+vendor adapter is a pure crate that translates CLI bytes into canonical
+events. Process management, mission policy, and persistence do not depend on a
+vendor-specific parser.
+
+All six shipping adapters run through the shared `vigla-adapter-conformance`
+harness, but the fixtures behind them are not equally strong, so here is the
+exact coverage:
+
+| Adapter | Conformance cases | Fixture suite | What the fixtures are |
+|---|---|---|---|
+| `claude` | 6 | `claude_simple.jsonl` via `from_fixture.rs` | stream-JSON shapes the parser dispatches on |
+| `codex` | 4 | `codex_simple.jsonl` via `from_fixture.rs` | JSONL shapes the parser dispatches on |
+| `gemini` | 4 | `happy_path.jsonl` via `from_fixture.rs` | stream-JSON shapes the parser dispatches on |
+| `antigravity` | 4 | none | synthetic plain text |
+| `kiro` | 4 | none | synthetic plain text |
+| `copilot` | 4 | none | synthetic plain text |
+
+Every fixture is synthetic. None is a recording of a real session: they use
+`/Users/alice/…` placeholders and contain no tokens, accounts, or repository
+names.
+
+The last three wrap `RawLogAdapter` and parse nothing, so there is no vendor
+output shape to pin. Their goldens pin the schema-side contract only — the
+opening `idle`→`executing` pair, verbatim log passthrough on stdout and
+stderr, empty lines emitting nothing, the shared quota detector firing, and
+the terminal event synthesised from exit status.
+
+Quota coverage exists for all six but is not uniform, and the goldens record
+the difference. `claude` and `gemini` parse the vendor's own rate-limit error,
+so their failure event carries category `rate_limit`. The other four —
+`codex`, `antigravity`, `kiro`, and `copilot` — surface the quota signal but
+not a parsed failure: their failure event is synthesised from the process exit
+status and carries category `internal` with `exit_code: 1`. What differs among
+those four is only how the signal is detected: `codex` reads a structured
+`usage_limit_exceeded` turn, the other three match raw stderr text.
+
+Real-CLI gates catch integration drift that fixtures cannot, and they run
+locally on request, never in CI.
 
 ## Can Vigla merge unsafe code automatically?
 
@@ -76,17 +112,25 @@ and records completion so the action is safe to retry after an interruption.
 ## Does the browser replay run an agent?
 
 No. It is the real React Operations Room projected from three committed,
-recorded canonical event streams. The app surface is inert, only replay
-controls are enabled, and the Tauri IPC imports resolve to in-process browser
-mocks. It cannot reach a vendor CLI or local repository.
+hand-authored canonical event streams (`app/src/demo/recordings.ts`) — a
+scripted, deterministic replay, not a capture of a real session. The
+timestamps, costs, and test counts in it are authored values. The app surface
+is inert, only replay controls are enabled, and the Tauri IPC imports resolve
+to in-process browser mocks. It cannot reach a vendor CLI or local
+repository.
 
 ## Why is there no download button?
 
-The supported distribution path is a source-built, ad-hoc-signed local DMG.
-Vigla does not publish maintainer-built binaries, so there is no external
+The supported distribution path today is a source-built, ad-hoc-signed local
+DMG. Vigla publishes no maintainer-built binaries, so there is no external
 signing identity, notarization credential, or binary update channel to trust.
 Run `./scripts/build.sh`; it verifies the app and disk image and prints a
 checksum for your local artifact.
+
+Whether that stays permanent is open. A [Mac App Store
+release](./roadmap/mac-app-store.md) is under feasibility investigation, and
+it would replace this trust model with Apple's rather than add to it — that
+trade has not been decided, and the feasibility answer comes first.
 
 ## Is Linux or Windows supported?
 

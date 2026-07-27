@@ -27,8 +27,8 @@ use super::kernel::{MemoryKernel, ProposalOutcome};
 
 /// Trait implemented by anything that wants to receive worker memory
 /// intents extracted by the parser. The orchestrator-side
-/// [`process_with_adapter`] path drains intents after each
-/// `ingest_line` and calls `emit` for each.
+/// [`crate::parser::process_with_adapter`] path drains intents
+/// after each `ingest_line` and calls `emit` for each.
 ///
 /// Implementations must be `Send + Sync` because the parser runs on
 /// the supervisor's task; intents may be processed asynchronously on
@@ -48,7 +48,7 @@ pub trait MemoryIntentSink: Send + Sync + fmt::Debug {
 const MAX_INFLIGHT_INTENTS: usize = 64;
 
 /// Concrete sink that routes intents through the Memory Kernel. Spawns
-/// a tokio task per intent (up to [`MAX_INFLIGHT_INTENTS`] concurrently)
+/// a tokio task per intent (up to `MAX_INFLIGHT_INTENTS` concurrently)
 /// so the parser loop never blocks on the kernel's SQLite write. Failures
 /// are logged and dropped — the fail-soft contract above.
 #[derive(Clone)]

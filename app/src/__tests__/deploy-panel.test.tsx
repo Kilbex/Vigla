@@ -150,10 +150,13 @@ describe("DeployPanel (unified team-launch surface)", () => {
 
     expect(Array.from(supervisor.options).map((o) => o.value)).toEqual([
       "claude",
+      "auto",
     ]);
-    expect(supervisor.disabled).toBe(true);
+    expect(supervisor.disabled).toBe(false);
     expect(
-      screen.getByText(/additional supervisor providers are roadmap work/i),
+      screen.getByText(
+        /additional real supervisor providers are roadmap work/i,
+      ),
     ).toBeTruthy();
     expect(Array.from(count.options).map((o) => o.value)).toEqual([
       "auto",
@@ -342,6 +345,108 @@ describe("DeployPanel (unified team-launch surface)", () => {
     );
   });
 
+  // B1: before this, "claude" was the only supervisor the panel could
+  // ever submit and the <select> was hardcoded disabled, so the mock
+  // mission runtime — the whole credential-free path — was unreachable
+  // from a shipped build.
+  it("Start submits supervisor_model 'auto' when the mock supervisor is chosen", async () => {
+    vi.mocked(commands.startMission).mockResolvedValueOnce({
+      status: "ok",
+      data: MID,
+    });
+    vi.mocked(openDialog).mockResolvedValueOnce("/tmp/project");
+
+    render(<DeployPanel />);
+    fireEvent.change(screen.getByLabelText(/mission objective/i), {
+      target: { value: "Add /api/logout" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: /browse for project folder/i }),
+    );
+    await waitFor(() => expect(screen.getByText("/tmp/project")).toBeTruthy());
+
+    fireEvent.click(screen.getByText(/^advanced$/i));
+    fireEvent.change(screen.getByLabelText(/supervisor model/i), {
+      target: { value: "auto" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /start/i }));
+
+    await waitFor(() => {
+      expect(commands.startMission).toHaveBeenCalledTimes(1);
+    });
+    expect(vi.mocked(commands.startMission).mock.calls[0][0]).toMatchObject({
+      supervisor_model: "auto",
+    });
+  });
+
+  it("Start submits supervisor_model 'claude' while the real supervisor stays selected", async () => {
+    vi.mocked(commands.startMission).mockResolvedValueOnce({
+      status: "ok",
+      data: MID,
+    });
+    vi.mocked(openDialog).mockResolvedValueOnce("/tmp/project");
+
+    render(<DeployPanel />);
+    fireEvent.change(screen.getByLabelText(/mission objective/i), {
+      target: { value: "Add /api/logout" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: /browse for project folder/i }),
+    );
+    await waitFor(() => expect(screen.getByText("/tmp/project")).toBeTruthy());
+
+    fireEvent.click(screen.getByText(/^advanced$/i));
+    expect(
+      (screen.getByLabelText(/supervisor model/i) as HTMLSelectElement).value,
+    ).toBe("claude");
+    fireEvent.click(screen.getByRole("button", { name: /start/i }));
+
+    await waitFor(() => {
+      expect(commands.startMission).toHaveBeenCalledTimes(1);
+    });
+    expect(vi.mocked(commands.startMission).mock.calls[0][0]).toMatchObject({
+      supervisor_model: "claude",
+    });
+  });
+
+  it("offers the mock supervisor in a production build with no E2E flag", async () => {
+    // Re-import the panel with the dev flags off so a module-scope
+    // `import.meta.env.DEV` gate would be evaluated as false — the
+    // dev-tools Mock spawn buttons hide behind exactly such a gate,
+    // and this option must not.
+    vi.stubEnv("DEV", false);
+    vi.stubEnv("VITE_VIGLA_E2E", "");
+    vi.resetModules();
+    const { default: ProductionDeployPanel } = await import(
+      "../comms/DeployPanel"
+    );
+
+    render(<ProductionDeployPanel />);
+    fireEvent.click(screen.getByText(/^advanced$/i));
+    const supervisor = screen.getByLabelText(
+      /supervisor model/i,
+    ) as HTMLSelectElement;
+
+    expect(Array.from(supervisor.options).map((o) => o.value)).toContain(
+      "auto",
+    );
+    expect(supervisor.disabled).toBe(false);
+    vi.unstubAllEnvs();
+  });
+
+  it("warns that the mock supervisor still commits to the selected folder", () => {
+    render(<DeployPanel />);
+    fireEvent.click(screen.getByText(/^advanced$/i));
+    expect(screen.queryByTestId("deploy-mock-supervisor-notice")).toBeNull();
+
+    fireEvent.change(screen.getByLabelText(/supervisor model/i), {
+      target: { value: "auto" },
+    });
+    const notice = screen.getByTestId("deploy-mock-supervisor-notice");
+    expect(notice.textContent).toMatch(/no vendor cli/i);
+    expect(notice.textContent).toMatch(/branches, worktrees, and commits/i);
+  });
+
   it("does not pin a vendor model when a concrete default roster starts", async () => {
     vi.mocked(commands.startMission).mockResolvedValueOnce({
       status: "ok",
@@ -495,6 +600,46 @@ describe("DeployPanel (unified team-launch surface)", () => {
     });
     const call = vi.mocked(commands.startMission).mock.calls[0];
     expect(call[0].confirm_plan).toBe(true);
+  });
+
+  it("mock supervisor + Plan-mode Review → confirm_plan is null and the control says why", async () => {
+    // The scripted runtime never parks at PendingPlanApproval, so sending
+    // confirm_plan: true would advertise a gate that cannot fire.
+    vi.mocked(commands.startMission).mockResolvedValueOnce({
+      status: "ok",
+      data: MID,
+    });
+    vi.mocked(openDialog).mockResolvedValueOnce("/tmp/project");
+
+    render(<DeployPanel />);
+    fireEvent.change(screen.getByLabelText(/mission objective/i), {
+      target: { value: "Add /api/logout" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: /browse for project folder/i }),
+    );
+    await waitFor(() => expect(screen.getByText("/tmp/project")).toBeTruthy());
+    fireEvent.click(screen.getByText(/^advanced$/i));
+    fireEvent.click(
+      screen.getByLabelText(/review \(pause for plan approval\)/i),
+    );
+    fireEvent.change(screen.getByLabelText(/supervisor model/i), {
+      target: { value: "auto" },
+    });
+
+    // `disabled` on a <fieldset> disables its descendants without being
+    // reflected on their own IDL attribute, so assert on the fieldset.
+    const review = screen.getByLabelText(/review \(pause for plan approval\)/i);
+    expect(review.closest("fieldset")?.disabled).toBe(true);
+    expect(screen.getByText(/proposes no plan/i)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /start/i }));
+    await waitFor(() => {
+      expect(commands.startMission).toHaveBeenCalledTimes(1);
+    });
+    const mockCall = vi.mocked(commands.startMission).mock.calls[0];
+    expect(mockCall[0].supervisor_model).toBe("auto");
+    expect(mockCall[0].confirm_plan).toBe(null);
   });
 
   it("Plan-mode Direct (default) → startMission payload has confirm_plan: null", async () => {

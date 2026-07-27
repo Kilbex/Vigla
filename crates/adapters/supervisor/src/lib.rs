@@ -7,7 +7,7 @@
 //! each line through [`SupervisorAdapter::ingest_line`].
 //!
 //! Why not the canonical [`event_schema`] surface used by
-//! [`claude_adapter::ClaudeAdapter`]? Worker adapters surface a CLI's
+//! `claude_adapter::ClaudeAdapter`? Worker adapters surface a CLI's
 //! output for the user — runs that produce code edits, file activity,
 //! test results. The supervisor's role is different: it doesn't edit
 //! files; it makes mission-level decisions (decompose, spawn, review,
@@ -60,10 +60,13 @@ const MAX_DIAGNOSTIC_TEXT_BYTES: usize = 16 * 1024;
 /// is one file, not a runtime asset path.
 pub const PLAYBOOK: &str = include_str!("playbook.md");
 
-/// Phase 2 evidence-path pin for the first real Claude supervisor
-/// playbook. This is a product/eval version, not an event-schema
-/// version.
-pub const PLAYBOOK_VERSION: &str = "real-claude-supervisor-v1";
+/// Phase 2 evidence-path pin for the real Claude supervisor playbook.
+/// This is a product/eval version, not an event-schema version. Bump
+/// it whenever an edit changes what the supervisor is told to do, so
+/// eval transcripts can be attributed to the prompt that produced
+/// them. v2 widened the `reassign` vendor list from claude/codex/gemini
+/// to every vendor `backend_after_reassign` can actually dispatch.
+pub const PLAYBOOK_VERSION: &str = "real-claude-supervisor-v2";
 
 /// Bundled worker playbook (MSV U4.1) — the system prompt that scopes
 /// a Claude/Codex/Gemini CLI to acting as a mission worker: edit files
@@ -895,12 +898,99 @@ mod tests {
         );
     }
 
+    /// True for the vendors `orchestrator::backend_after_reassign` can
+    /// turn into a real worker backend; false for the two it rejects
+    /// (`opencode` has no vendor profile, `mock` is the test harness) —
+    /// naming either in the playbook escalates the mission instead of
+    /// reassigning the task. Exhaustive on purpose: a seventh
+    /// `event_schema::Vendor` variant breaks this match, so it cannot be
+    /// added without deciding what the playbook should say about it.
+    fn is_dispatchable(vendor: event_schema::Vendor) -> bool {
+        use event_schema::Vendor;
+        match vendor {
+            Vendor::Claude
+            | Vendor::Codex
+            | Vendor::Gemini
+            | Vendor::Antigravity
+            | Vendor::Kiro
+            | Vendor::Copilot => true,
+            Vendor::Opencode | Vendor::Mock => false,
+        }
+    }
+
+    /// Every `Vendor` wire name, harvested from serde's unknown-variant
+    /// error rather than copied into an array here — a copy would rot
+    /// silently the moment a vendor is added, which is the exact failure
+    /// this test exists to prevent.
+    fn every_vendor_wire_name() -> Vec<String> {
+        let err = serde_json::from_value::<event_schema::Vendor>(Value::from("__not_a_vendor__"))
+            .expect_err("a bogus vendor name must not deserialize");
+        let msg = err.to_string();
+        let listed = msg
+            .split_once("expected one of ")
+            .unwrap_or_else(|| panic!("serde must enumerate the variants it expected: {msg}"))
+            .1;
+        listed
+            .split(", ")
+            .map(|token| token.trim().trim_matches('`').to_string())
+            .filter(|name| !name.is_empty())
+            .collect()
+    }
+
+    /// The `#### Vendor pinning (reassign)` section, up to the next
+    /// level-3 heading. The vendor list has to be pinned here rather
+    /// than against the whole playbook: `copilot` also appears in the
+    /// discovery section's `.github/copilot-instructions.md`, so a
+    /// document-wide `contains` would pass on a list that never
+    /// mentions the vendor at all.
+    fn vendor_pinning_section() -> &'static str {
+        let start = PLAYBOOK
+            .find("#### Vendor pinning (reassign)")
+            .expect("playbook must keep the Vendor pinning section header");
+        let rest = &PLAYBOOK[start..];
+        let end = rest[1..].find("\n### ").map_or(rest.len(), |i| i + 1);
+        &rest[..end]
+    }
+
     #[test]
-    fn supervisor_playbook_declares_v1_identity() {
-        assert_eq!(PLAYBOOK_VERSION, "real-claude-supervisor-v1");
+    fn supervisor_playbook_lists_every_dispatchable_vendor() {
+        // The shipped v1 playbook told the supervisor "Valid vendors:
+        // claude, codex, gemini" while the orchestrator could already
+        // dispatch three more, so `reassign` never reached Antigravity,
+        // Kiro or Copilot. Pin the list against the enum, not against a
+        // second copy of the same prose.
+        let section = vendor_pinning_section();
+        let names = every_vendor_wire_name();
+        assert!(
+            names.iter().any(|n| n == "claude"),
+            "harvest produced no usable vendor names: {names:?}"
+        );
+        for name in &names {
+            let vendor: event_schema::Vendor = serde_json::from_value(Value::from(name.as_str()))
+                .unwrap_or_else(|e| panic!("harvested name {name:?} must deserialize: {e}"));
+            let offered = section.contains(&format!("`{name}`"));
+            if is_dispatchable(vendor) {
+                assert!(
+                    offered,
+                    "vendor-pinning section never names `{name}`, so the supervisor \
+                     will never reassign to it:\n{section}"
+                );
+            } else {
+                assert!(
+                    !offered,
+                    "vendor-pinning section offers `{name}`, but reassigning to it \
+                     escalates the mission instead:\n{section}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn supervisor_playbook_declares_v2_identity() {
+        assert_eq!(PLAYBOOK_VERSION, "real-claude-supervisor-v2");
         assert!(
             PLAYBOOK.contains(PLAYBOOK_VERSION),
-            "playbook must carry the v1 identity used by Phase 2 evals"
+            "playbook must carry the v2 identity used by Phase 2 evals"
         );
         assert!(
             PLAYBOOK.contains("mission supervisor"),

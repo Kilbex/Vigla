@@ -37,7 +37,7 @@ use super::store::{backfill_titles, MemoryStore};
 /// is intentionally flat — `notes/` and `missions/` are siblings —
 /// so the user-facing path is just `.vigla/memory/{notes,
 /// missions}/...`. Legacy installs with a `codex/` wrapper are
-/// migrated on first open by [`MemoryKernel::maybe_migrate_legacy_layout`].
+/// migrated on first open by [`maybe_migrate_legacy_layout`].
 const MISSIONS_DIR: &str = "missions";
 /// Legacy subdir name from before the A1 (Tier-2F) rename. Kept as a
 /// constant so the migration can find — and remove — it without

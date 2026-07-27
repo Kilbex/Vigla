@@ -43,16 +43,21 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum MemoryIntent {
+    /// The worker is proposing a memory note. Wire tag `propose`.
     Propose(ProposeIntent),
 }
 
+/// Payload of a [`MemoryIntent::Propose`] — a candidate note as the
+/// worker wrote it, before the scanner or the kernel see it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProposeIntent {
     /// Note kind in taxonomy string form (e.g. `"hazard"`). The
     /// kernel side maps this to its typed `NoteKind` and rejects
     /// unknown values — adapters only carry the string.
     pub kind: String,
+    /// What the worker says the note applies to.
     pub scope: ScopeIntent,
+    /// The proposed note text, verbatim from the worker.
     pub body: String,
     /// Provenance trail (V3 §4 threat #2). Each entry is an opaque
     /// source identifier (`"worktree:src/x.rs:42"`, `"url:..."`, ...).
@@ -64,9 +69,13 @@ pub struct ProposeIntent {
     pub evidence_event_ids: Vec<String>,
 }
 
+/// Scope as the worker stated it. Strings, not typed variants — the
+/// kernel owns validation, adapters only carry the bytes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ScopeIntent {
+    /// Scope kind in string form (e.g. `"repo"`, `"path"`).
     pub kind: String,
+    /// Scope anchor, absent for repository-wide scope.
     #[serde(default)]
     pub value: Option<String>,
 }

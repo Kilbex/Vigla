@@ -1,0 +1,9 @@
+{
+  "lines": [
+    { "stream": "stdout", "text": "copilot: working in /Users/alice/src/demo-app" },
+    { "stream": "stdout", "text": "{\"type\":\"log\",\"message\":\"editing src/lib.rs\"}" },
+    { "stream": "stdout", "text": "" },
+    { "stream": "stderr", "text": "copilot: 1 file changed" }
+  ],
+  "finalize": "Clean"
+}

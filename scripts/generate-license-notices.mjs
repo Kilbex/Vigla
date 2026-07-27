@@ -1017,24 +1017,26 @@ async function syncPublicFiles(aggregate) {
   );
 }
 
-async function assertCurrent(filePath, expected) {
+// `pnpm -C app licenses:write` refreshes the distributions from the committed
+// Rust report, so it cannot repair the report itself: that is keyed on
+// sha256(Cargo.lock) and only cargo-about can regenerate it. Callers whose file
+// is the report pass the full sequence instead — advice that does not fix the
+// failure is worse than none.
+const REFRESH_DISTRIBUTIONS = "run `pnpm -C app licenses:write`";
+
+async function assertCurrent(filePath, expected, remedy = REFRESH_DISTRIBUTIONS) {
+  const name = path.relative(repoRoot, filePath);
   let actual;
   try {
     actual = await readFile(filePath, "utf8");
   } catch (error) {
     if (error?.code === "ENOENT") {
-      throw new Error(
-        `${path.relative(repoRoot, filePath)} is missing; run ` +
-          "`pnpm -C app licenses:write`",
-      );
+      throw new Error(`${name} is missing; ${remedy}`);
     }
     throw error;
   }
   if (actual !== expected) {
-    throw new Error(
-      `${path.relative(repoRoot, filePath)} is stale; run ` +
-        "`pnpm -C app licenses:write`",
-    );
+    throw new Error(`${name} is stale; ${remedy}`);
   }
 }
 
@@ -1084,7 +1086,16 @@ async function main() {
           "run `pnpm -C app licenses:write` to refresh distributions\n",
       );
     } else {
-      await assertCurrent(rustReportPath, expected);
+      await assertCurrent(
+        rustReportPath,
+        expected,
+        "regenerate it with the sequence in CONTRIBUTING.md " +
+          "(`cargo about generate --workspace --all-features --locked --fail " +
+          "--format json --output-file <tmp>` then " +
+          "`node scripts/generate-license-notices.mjs --write-rust-report <tmp>` " +
+          "then `pnpm -C app licenses:write`), or dispatch the " +
+          "'Regenerate dependency notices' workflow",
+      );
       process.stdout.write("Rust dependency license report is current\n");
     }
     return;

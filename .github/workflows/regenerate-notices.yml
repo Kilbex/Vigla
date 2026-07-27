@@ -1,0 +1,133 @@
+name: Regenerate dependency notices
+
+# Any Cargo.lock byte change invalidates third_party_licenses/rust-dependencies.json,
+# which gates the Rust, Frontend, and Browser E2E checks — so every Dependabot
+# Cargo update lands red and cannot be repaired by the bot. Dependabot-triggered
+# runs get a read-only token and no secrets, so an auto-commit job would fail
+# anyway, and `pull_request_target` would hand a writable token to code from an
+# untrusted branch. This workflow is the safe shape instead: a maintainer
+# dispatches a definition that lives on the default branch, naming the branch to
+# repair, and the run is attributable to that maintainer in the Actions log.
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch whose Cargo.lock changed, e.g. dependabot/cargo/tokio-1.2.3"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: regenerate-notices-${{ inputs.branch }}
+  cancel-in-progress: false
+
+jobs:
+  regenerate:
+    name: Regenerate notices
+    # Matches the CI job that gates the report, so the bytes produced here are
+    # the bytes `--check-rust-report` will compare against.
+    runs-on: macos-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    env:
+      BRANCH: ${{ inputs.branch }}
+    steps:
+      - name: Validate the requested branch
+        run: |
+          set -euo pipefail
+          [[ "$BRANCH" =~ ^[A-Za-z0-9][A-Za-z0-9._/-]*$ ]] || {
+            echo "branch must be a plain branch name, got: $BRANCH" >&2
+            exit 1
+          }
+          # The character class above still admits "..", which git would read as
+          # a range and refuse late, inside the push. Reject it here instead.
+          [[ "$BRANCH" != *".."* ]] || {
+            echo "branch must not contain '..', got: $BRANCH" >&2
+            exit 1
+          }
+          [[ "$BRANCH" != "main" ]] || {
+            echo "main is protected; regenerate on the pull-request branch." >&2
+            exit 1
+          }
+
+      - name: Checkout the requested branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.branch }}
+          # Unlike every other workflow here, this one pushes its result back,
+          # so it is the one place that keeps the checkout credentials.
+          persist-credentials: true
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install cargo-about
+        # Same pin as the CI job and CONTRIBUTING.md; a different cargo-about
+        # writes a different report and the check would still fail.
+        uses: taiki-e/install-action@a6b2e2dcd845ddd7f509ce4f3ed3d922b80cc5d9 # v2.84.0
+        with:
+          tool: cargo-about@0.9.1
+          fallback: none
+
+      - name: Regenerate the Rust report and notices
+        run: |
+          set -euo pipefail
+          cargo about generate --workspace --all-features --locked --fail \
+            --format json \
+            --output-file "$RUNNER_TEMP/vigla-rust-licenses.json"
+          node scripts/generate-license-notices.mjs \
+            --write-rust-report "$RUNNER_TEMP/vigla-rust-licenses.json"
+          pnpm -C app licenses:write
+
+      - name: Reproduce the CI license gates
+        run: |
+          set -euo pipefail
+          cargo about generate --workspace --all-features --locked --fail \
+            --format json \
+            --output-file "$RUNNER_TEMP/vigla-rust-licenses-verify.json"
+          node scripts/generate-license-notices.mjs \
+            --check-rust-report "$RUNNER_TEMP/vigla-rust-licenses-verify.json"
+          node scripts/generate-license-notices.mjs --check
+
+      - name: Push the regenerated notices
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add THIRD_PARTY_NOTICES.txt third_party_licenses app/public
+          if git diff --cached --quiet; then
+            echo "Notices already match Cargo.lock; nothing to push."
+            exit 0
+          fi
+          git commit -m "chore: regenerate dependency license notices"
+          # Dependabot force-pushes when it rebases, which discards this commit.
+          # Re-dispatch after a rebase rather than expecting it to survive.
+          git push origin "HEAD:$BRANCH"
+          cat >&2 <<'EOF'
+
+          Pushed. NOTE: GitHub does not start workflow runs for pushes made with
+          GITHUB_TOKEN, so the pull request's required checks will sit at
+          "Expected — waiting for status to be reported" on the new head commit.
+          Close and reopen the pull request (or push any commit from a human
+          account) to make them run. Re-dispatching this workflow will not help:
+          the notices now match, so it exits without pushing again.
+          EOF

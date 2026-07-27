@@ -24,7 +24,7 @@ pub enum MergeOutcome {
 
 /// Conflict shape recovered from `git status --porcelain=v2`.
 /// Mapped from the porcelain-v2 XY status codes per
-/// https://git-scm.com/docs/git-status#_porcelain_format_version_2.
+/// <https://git-scm.com/docs/git-status#_porcelain_format_version_2>.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "snake_case")]
 pub enum ConflictKind {
@@ -64,7 +64,7 @@ impl ConflictReport {
 /// unmerged paths into `ConflictPath` entries.
 ///
 /// Format reference:
-/// https://git-scm.com/docs/git-status#_porcelain_format_version_2
+/// <https://git-scm.com/docs/git-status#_porcelain_format_version_2>
 ///
 /// Unmerged entries start with `u`. The XY codes after `u` tell us
 /// the shape:

@@ -280,14 +280,15 @@ pub(crate) struct WorkerPassOutcome {
 /// - **Mock:** construct a `MockWorkerVariant` at `(kind_for_index,
 ///   pass_number)`, write the variant's file, `git add`, `git commit`.
 ///   The mock backend never populates quota / context signals.
-/// - **RealCli:** call [`run_real_worker`] which spawns the vendor CLI
-///   in the worktree, streams its stdout through the vendor adapter
-///   onto the mission event bus as user-visible WorkerProgress notes
-///   (so the run is observable identically to a standalone real-CLI
-///   worker), then commits whatever the worker changed (`git add -A
-///   && git commit`). The worker playbook forbids workers running git
-///   themselves. After the run, drains the adapter signals collected
-///   during the pass into the outcome.
+/// - **RealCli:** call
+///   [`crate::mission_worker_dispatch::run_real_worker`] which spawns
+///   the vendor CLI in the worktree, streams its stdout through the
+///   vendor adapter onto the mission event bus as user-visible
+///   WorkerProgress notes (so the run is observable identically to a
+///   standalone real-CLI worker), then commits whatever the worker
+///   changed (`git add -A && git commit`). The worker playbook
+///   forbids workers running git themselves. After the run, drains
+///   the adapter signals collected during the pass into the outcome.
 pub(super) async fn run_worker_pass(
     backend: WorkerBackend,
     worktree: &Path,

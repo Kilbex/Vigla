@@ -16,10 +16,19 @@ interface SettingsProps {
   onClose: () => void;
 }
 
+// Every script bundled in `crates/mock-harness/src/lib.rs`, in
+// `Script::ALL` order. This list had drifted to the first three, hiding
+// the blocked / failed / terminal / quota-exhausted trajectories from
+// the only surface that can spawn them; settings.test.tsx now pins it
+// by reading the `Script::name()` arms out of the Rust source.
 const MOCK_SCRIPTS = [
   "claude_happy",
   "codex_blocked",
   "gemini_happy",
+  "gemini_blocked",
+  "gemini_failed",
+  "gemini_terminal",
+  "claude_quota_exhausted",
 ] as const;
 type MockScript = (typeof MOCK_SCRIPTS)[number];
 

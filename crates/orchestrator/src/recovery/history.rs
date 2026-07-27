@@ -1,7 +1,7 @@
 //! Per-task ledger of recovery attempts grouped by failure class.
 //!
 //! Lives in the per-task loop in
-//! [`crate::mission_supervisor_run::mission_loop`]; reset between
+//! `crate::mission_supervisor_run::mission_loop`; reset between
 //! tasks. Used by [`crate::recovery::policy::recover`] to decide
 //! whether the per-class retry budget is exhausted.
 

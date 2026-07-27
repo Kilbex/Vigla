@@ -121,7 +121,7 @@ impl MemoryStore {
 
     /// Validate inputs, generate a note id, and atomically write the
     /// body file. The returned [`PreparedNote`] is then passed to
-    /// [`mint_note_in_tx`] inside the caller's transaction.
+    /// [`MemoryStore::mint_note_in_tx`] inside the caller's transaction.
     ///
     /// On any error after the body file is written, the tmp file is
     /// cleaned up by `write_atomic`. On crash between this call and

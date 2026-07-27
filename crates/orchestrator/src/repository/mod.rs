@@ -559,8 +559,9 @@ impl Repository {
         Ok(())
     }
 
-    /// Expose the configured live-tier cap so [`RetentionGuard`] can
-    /// read the same value `mark_worker_ended` uses for inline trim.
+    /// Expose the configured live-tier cap so
+    /// [`crate::retention::RetentionGuard`] can read the same value
+    /// `mark_worker_ended` uses for inline trim.
     pub(crate) fn live_cap(&self) -> u64 {
         self.live_cap
     }
@@ -799,9 +800,9 @@ impl Repository {
         }
     }
 
-    /// Inner helper shared by [`archive_excess_for_worker`] and
-    /// [`archive_excess_for_all`] — runs the trim on a connection whose
-    /// caller has already opened a `BEGIN IMMEDIATE` transaction.
+    /// Inner helper shared by [`Self::archive_excess_for_worker`] and
+    /// [`Self::archive_excess_for_all`] — runs the trim on a connection
+    /// whose caller has already opened a `BEGIN IMMEDIATE` transaction.
     async fn archive_excess_in_tx(
         conn: &mut sqlx::SqliteConnection,
         worker_id: &str,
@@ -849,7 +850,8 @@ impl Repository {
     /// the live tier. Returns archived row counts keyed by worker id;
     /// workers that needed no work are absent from the map.
     ///
-    /// Used by [`RetentionGuard`] for periodic background trim.
+    /// Used by [`crate::retention::RetentionGuard`] for periodic
+    /// background trim.
     ///
     /// Each worker is trimmed in its OWN short transaction. A single outer
     /// transaction across all workers (a prior optimization) held the WAL
@@ -896,7 +898,7 @@ impl Repository {
     /// smallest `seq`; subsequent calls pass `events.last().seq` to
     /// advance. An empty result means exhausted.
     ///
-    /// `limit` is clamped to [`MAX_REPLAY_PAGE`] server-side.
+    /// `limit` is clamped to `MAX_REPLAY_PAGE` server-side.
     pub async fn replay_for_worker_page(
         &self,
         worker_id: &str,
@@ -926,7 +928,7 @@ impl Repository {
     }
 
     /// Replay every event for a worker, in `seq` order. Thin wrapper
-    /// over [`replay_for_worker_page`] that pages internally and
+    /// over [`Self::replay_for_worker_page`] that pages internally and
     /// concatenates. Memory footprint during the load is bounded to one
     /// page (`MAX_REPLAY_PAGE`) at a time — unlike the prior implementation
     /// which materialised the entire result set up front.
@@ -963,7 +965,7 @@ impl Repository {
     /// The cursor is the `(ts, worker_id, seq)` of the last returned row:
     /// all `None` on the first page, all `Some` on subsequent pages.
     ///
-    /// `limit` is clamped to [`MAX_REPLAY_PAGE`] server-side.
+    /// `limit` is clamped to `MAX_REPLAY_PAGE` server-side.
     pub async fn replay_for_task_page(
         &self,
         task_id: &str,
@@ -998,8 +1000,8 @@ impl Repository {
     }
 
     /// Replay every event for a task, in `(ts, seq)` order. Thin
-    /// wrapper over [`replay_for_task_page`]; see [`replay_for_worker`]
-    /// for the rationale.
+    /// wrapper over [`Self::replay_for_task_page`]; see
+    /// [`Self::replay_for_worker`] for the rationale.
     pub async fn replay_for_task(&self, task_id: &str) -> Result<Vec<Event>, RepositoryError> {
         let mut all = Vec::new();
         let mut after_seq: Option<u64> = None;

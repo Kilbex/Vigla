@@ -714,6 +714,10 @@ async fn run_extend_branch(
     if let Some(d) = plan.directive {
         state.rework_directive = Some(d);
     }
+    // Both overlays persist for the rest of the task and are replaced only by
+    // a later overlay of the same kind: re-widening a narrowed scope (or
+    // restoring a retracted brief) because the following pass carried no
+    // overlay would undo the supervisor's correction behind its back.
     if let Some(s) = plan.scope_overlay {
         match crate::mission::normalize_scope_paths(&s) {
             Ok(paths) => state.narrow_overlay = Some(paths),
@@ -1845,14 +1849,16 @@ fn fallback_backend_after_vendor_crash(
     Some(WorkerBackend::RealCli(fallback))
 }
 
+/// Vendor to retry with after a crash under `AutoReal`, where the user named no
+/// roster and the mission picks for them. Deliberately NOT a rotation across
+/// every supported vendor: a fallback is only useful if the CLI is installed and
+/// authenticated, and Claude and Codex are the two the project gates against
+/// real CLIs. A roster mission uses the user's own order instead
+/// (`fallback_vendor_for_task_index`), which is where the other vendors belong.
 fn fallback_auto_vendor(current: WorkerVendor) -> Option<WorkerVendor> {
-    [
-        WorkerVendor::Claude,
-        WorkerVendor::Codex,
-        WorkerVendor::Gemini,
-    ]
-    .into_iter()
-    .find(|vendor| *vendor != current)
+    [WorkerVendor::Claude, WorkerVendor::Codex]
+        .into_iter()
+        .find(|vendor| *vendor != current)
 }
 
 fn vendor_label_for_backend(backend: WorkerBackend) -> &'static str {
@@ -2447,5 +2453,137 @@ mod tests {
         )
         .await
         .expect("wait should have returned immediately");
+    }
+
+    /// Pins the overlay contract documented on [`crate::arbiter::ReworkKind`]:
+    /// a `Narrow` followed by a plain `Revise` leaves the third pass running
+    /// under the narrowed ACL, and the untouched brief overlay leaves the task
+    /// title alone.
+    #[tokio::test]
+    async fn narrow_overlay_survives_a_following_revise() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().to_path_buf();
+        let tracker = VendorQuotaTracker::in_memory();
+        let ctx = TaskRunCtx {
+            mission_id: "overlay-mid".into(),
+            spec: MissionSpec {
+                title: "Overlay contract".into(),
+                objective: "pin the overlay lifetime".into(),
+                target_ref: "main".into(),
+                tests: None,
+                supervisor_model: None,
+                worker_model: None,
+                worker_count: None,
+                confirm_plan: None,
+                scope_paths: Vec::new(),
+            },
+            workspace: MissionWorkspace::new(root.clone(), "overlay-mid".into()).unwrap(),
+            event_bus: MissionEventBus::new(16),
+            state_tx: Arc::new(watch::channel(MissionState::Executing).0),
+            cancel: CancelToken::new(),
+            seq: Arc::new(AtomicU64::new(0)),
+            worker_backend: WorkerBackend::Mock,
+            memory: None,
+            skills: None,
+            arbiter_policy: crate::arbiter::ArbiterPolicy::default(),
+            recovery_policy: crate::recovery::policy::RecoveryPolicy::default(),
+            quota_tracker: Arc::clone(&tracker),
+            tasks_total: 1,
+            driver: Arc::new(Mutex::new(SupervisorDriver::Scripted(
+                crate::mission_supervisor_run::ScriptedSupervisor::new(Vec::new()),
+            ))),
+            session_id: Arc::new(Mutex::new(None)),
+            mission_cwd: root.clone(),
+            integration_lock: Arc::new(Mutex::new(())),
+            attempts_used_for_mission: Arc::new(Mutex::new(0)),
+            quota_wakeup: Arc::new(spawn_quota_wakeup_task(
+                Arc::clone(&tracker),
+                Duration::from_secs(60),
+            )),
+        };
+        let task = TaskDescriptor {
+            index: 0,
+            title: "Port the parser".into(),
+            scope_paths: vec![std::path::PathBuf::from("src")],
+            ..Default::default()
+        };
+        let mut state = TaskLoopState {
+            current_worktree: root.clone(),
+            ephemeral_context: crate::ephemeral_context::EphemeralContextSnapshot::capture(&root)
+                .await
+                .unwrap(),
+            worker_id_for_this_pass: "mock-1".into(),
+            vendor_for_this_pass: WorkerBackend::Mock,
+            observability: observability_for_worker(&ctx, "mock-1"),
+            attempts_used_for_task: 0,
+            rework_directive: None,
+            accepted_summary: None,
+            accepted_audit_overall: 0.0,
+            accepted_submission_files: Vec::new(),
+            accepted_scope_paths: Vec::new(),
+            should_scrub: false,
+            escalated: false,
+            escalation_rationale: None,
+            recovery_history: crate::recovery::RecoveryHistory::new(),
+            narrow_overlay: None,
+            rebrief_overlay: None,
+            latest_review_intent: None,
+        };
+        let audit_report = crate::audit::AuditReport::default();
+
+        let first = prepare_pass(&ctx, &state, &task).await;
+        assert_eq!(
+            first.acl_for_pass.allow_list(),
+            [std::path::PathBuf::from("src")],
+            "the first pass runs under the task's own scope"
+        );
+
+        run_extend_branch(
+            &ctx,
+            &mut state,
+            crate::arbiter::ReworkKind::Narrow {
+                reduced_scope: vec![std::path::PathBuf::from("src/parser.rs")],
+            },
+            &first,
+            &audit_report,
+            &task,
+        )
+        .await
+        .unwrap();
+
+        let second = prepare_pass(&ctx, &state, &task).await;
+        assert_eq!(
+            second.acl_for_pass.allow_list(),
+            [std::path::PathBuf::from("src/parser.rs")]
+        );
+
+        run_extend_branch(
+            &ctx,
+            &mut state,
+            crate::arbiter::ReworkKind::Revise {
+                directive: "handle the empty-input case".into(),
+            },
+            &second,
+            &audit_report,
+            &task,
+        )
+        .await
+        .unwrap();
+
+        let third = prepare_pass(&ctx, &state, &task).await;
+        assert_eq!(
+            third.acl_for_pass.allow_list(),
+            [std::path::PathBuf::from("src/parser.rs")],
+            "a Revise carries no overlay, so the narrowed ACL stays in force"
+        );
+        assert_eq!(
+            third.task_for_pass.title, "Port the parser",
+            "no Rebrief was issued, so the brief is still the task's own"
+        );
+        assert_eq!(
+            state.rework_directive.as_deref(),
+            Some("handle the empty-input case"),
+            "the directive is per-pass and belongs to the latest rework"
+        );
     }
 }

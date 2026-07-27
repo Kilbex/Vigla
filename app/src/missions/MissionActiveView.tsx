@@ -190,9 +190,16 @@ function formatWorkerModel(model: string): string {
  * that case we show "auto workers" rather than fake-precise numbers.
  */
 export function formatTeam(spec: MissionSpec): string {
-  const supervisor = capitalize(spec.supervisor_model ?? "claude");
+  // "auto" is the wire value the Deploy panel sends for the scripted
+  // supervisor; capitalizing it verbatim would put "Auto supervisor" on a
+  // mission that is explicitly a demo.
+  const model = spec.supervisor_model ?? "claude";
+  const supervisor = model === "auto" ? "Mock" : capitalize(model);
   const count = spec.worker_count;
-  const workerVendor = spec.worker_model;
+  // A mock mission spawns `Vendor::Mock` workers regardless of the roster the
+  // panel carried over from the last real run; naming those vendors here would
+  // credit CLIs that never started.
+  const workerVendor = model === "auto" ? null : spec.worker_model;
 
   let workers: string;
   if (count !== null && workerVendor !== null) {

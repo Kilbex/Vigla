@@ -1,5 +1,6 @@
 import {
   DEFAULT_WORKER_MODELS,
+  SUPERVISOR_OPTIONS,
   fillWorkerCliModels,
   fillWorkerModels,
   normalizeWorkerVendor,
@@ -23,7 +24,7 @@ export interface StoredPrefs {
   scopePathsText?: string;
 }
 
-const SUPERVISOR_VALUES = new Set<string>(["claude"]);
+const SUPERVISOR_VALUES = new Set<string>(SUPERVISOR_OPTIONS);
 const COUNT_VALUES = new Set<string>(["auto", "1", "2", "3", "4", "5"]);
 
 export function loadPrefs(): StoredPrefs {
@@ -48,6 +49,9 @@ export function savePrefs(prefs: StoredPrefs): void {
   }
 }
 
+// Falls back to the real supervisor, never the mock: an unreadable or
+// unrecognised preference must not quietly turn someone's mission into
+// a scripted demo.
 export function initialSupervisor(prefs: StoredPrefs): SupervisorVendor {
   return prefs.supervisorModel && SUPERVISOR_VALUES.has(prefs.supervisorModel)
     ? (prefs.supervisorModel as SupervisorVendor)

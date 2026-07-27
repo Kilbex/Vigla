@@ -1,0 +1,10 @@
+{
+  "lines": [
+    { "stream": "stdout", "text": "{\"type\":\"thread.started\",\"thread_id\":\"fixture-codex-thread-001\"}" },
+    { "stream": "stderr", "text": "warning: sandbox denied write to /Users/alice/.config" },
+    { "stream": "stdout", "text": "{\"type\":\"turn.started\"}" },
+    { "stream": "stdout", "text": "{\"type\":\"item.completed\",\"item\":{\"id\":\"fixture-item-message-001\",\"type\":\"agent_message\",\"text\":\"Synthetic fixture completed.\"}}" },
+    { "stream": "stdout", "text": "{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":32,\"cached_input_tokens\":8,\"output_tokens\":4,\"reasoning_output_tokens\":0}}" }
+  ],
+  "finalize": "Clean"
+}

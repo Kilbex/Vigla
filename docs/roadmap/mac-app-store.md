@@ -1,8 +1,30 @@
 # Mac App Store feasibility
 
-Vigla's public-distribution goal is a trustworthy Mac App Store release without
-turning the store build into a smaller or misleading product. This track is a
-technical gate, not a release promise.
+Status: feasibility investigation. This document answers *can* Vigla ship on
+the Mac App Store without becoming a smaller or misleading product. It does not
+answer *should* it, and it is not a release promise.
+
+## The trade this investigation does not decide
+
+Vigla's current distribution story is a trust argument: no maintainer-built
+binary, no signing identity, no notarization credential, and no update channel
+— you build the artifact on your own machine and check its own checksum. That
+argument is stated as present-tense fact in the [README](../../README.md),
+[SECURITY.md](../../SECURITY.md), and the [FAQ](../faq.md).
+
+A Mac App Store release would **replace** that model, not extend it. Store
+builds are signed with a maintainer-held identity, delivered by Apple, and
+updated through Apple's channel; the reader who trusted "nothing to trust but
+your own build" would be asked to trust an Apple-vetted maintainer binary
+instead. That is a real trade: it buys reach, discoverability, and a one-click
+install, and it costs the strongest claim the project currently makes.
+
+**That trade is not decided.** Nothing below commits to it. Technical
+feasibility is a precondition for deciding, not the decision — if the spike
+passes, the question of whether to spend the trust is still open and belongs
+to the maintainer in public, under the
+[roadmap](https://github.com/Kilbex/Vigla/issues?q=is%3Aissue+label%3Aroadmap)
+label.
 
 ## Why feasibility comes first
 
@@ -53,7 +75,8 @@ ship a store build that implies parity with the source-built app.
 
 ## Distribution work after the gate
 
-Only after the spike passes:
+Only after the spike passes **and** the trust trade above is decided in favour
+of a store release:
 
 - add a dedicated store signing and provisioning path without weakening the
   reproducible local build;
@@ -74,4 +97,5 @@ metrics can measure launch discovery without adding product telemetry.
 
 Move this track from feasibility to release execution only when the sandboxed
 spike completes a real mission with a user-installed CLI and a user-selected
-repository, then repeats it after app relaunch.
+repository, then repeats it after app relaunch — and only after the trust trade
+in the opening section has been decided and recorded publicly.

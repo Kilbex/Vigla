@@ -9,13 +9,16 @@ export type PlaybookMemberSpawn =
   | { kind: "codex"; prompt: string; cwd: string }
   | { kind: "gemini"; prompt: string; cwd: string };
 
+/// Mirrors `Script::name()` in crates/mock-harness/src/lib.rs; the orchestrator
+/// rejects anything else with `UnknownScript` before a worker spawns.
 export type MockScript =
   | "claude_happy"
   | "codex_blocked"
   | "gemini_happy"
   | "gemini_blocked"
   | "gemini_failed"
-  | "gemini_terminal";
+  | "gemini_terminal"
+  | "claude_quota_exhausted";
 
 /// One member of a playbook team. The `role` is a human label
 /// ("implementer", "reviewer", "lead") used as the worker's task title.
@@ -51,6 +54,7 @@ export const MOCK_VENDOR_MAP: Record<MockScript, Vendor> = {
   gemini_blocked: "gemini",
   gemini_failed: "gemini",
   gemini_terminal: "gemini",
+  claude_quota_exhausted: "claude",
 };
 
 /// Returns the vendor a member's spawn implies, used by the runner

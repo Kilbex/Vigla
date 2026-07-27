@@ -159,6 +159,35 @@ impl MissionWorkspace {
         format!("vigla/pre-merge/{}/{}", self.mission_id, n)
     }
 
+    /// Anchor at the commit the supervisor branch was cut from. Recorded once
+    /// at branch creation because integration snapshots cannot stand in for it:
+    /// integration indexes are assigned when a task is spawned, while the
+    /// integration phase is serialised first-come, so the `/0` snapshot may
+    /// already contain a peer's work. It lives outside `refs/tags/` and
+    /// `refs/heads/` so it stays invisible to `git tag`, `git branch` and the
+    /// default push refspec — it is runtime state, not a user-facing marker.
+    pub fn base_ref(&self) -> String {
+        format!("refs/vigla/base/{}", self.mission_id)
+    }
+
+    /// Commit the supervisor branch was cut from. `None` for missions branched
+    /// before [`Self::base_ref`] was recorded.
+    pub(crate) async fn base_point_sha(&self) -> Result<Option<String>, MissionGitError> {
+        match self
+            .run_git(&[
+                "rev-parse",
+                "--verify",
+                "--quiet",
+                &format!("{}^{{commit}}", self.base_ref()),
+            ])
+            .await
+        {
+            Ok(sha) => Ok(Some(sha)),
+            Err(MissionGitError::Git { .. }) => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
     /// Persistent rollback anchor at the target branch's pre-mission commit.
     /// The target ref is encoded in the suffix so a later host process can
     /// resolve the correct branch without an in-memory mission handle.
@@ -266,6 +295,11 @@ impl MissionWorkspace {
         }
         let branch = self.supervisor_branch();
         self.run_git(&["branch", &branch, target_ref]).await?;
+        let base_sha = self
+            .run_git(&["rev-parse", &format!("{branch}^{{commit}}")])
+            .await?;
+        self.run_git(&["update-ref", &self.base_ref(), &base_sha])
+            .await?;
         Ok(())
     }
 
@@ -998,6 +1032,8 @@ impl MissionWorkspace {
         //    missions, bloating packed-refs and keeping objects pinned
         //    against git gc. Final `vigla/revert/<mid>/...` anchors survive
         //    until retention compaction so a merged mission remains revertible.
+        //    The branch-point ref goes with the pre-merge tags: it only serves
+        //    the staged-revert path, which dies with them.
         let tag_list = self.run_git(&["tag", "--list"]).await?;
         let snap_prefix = format!("vigla/snap/{}/", self.mission_id);
         let pre_merge_prefix = format!("vigla/pre-merge/{}/", self.mission_id);
@@ -1007,6 +1043,9 @@ impl MissionWorkspace {
                     errors.push(format!("delete tag {tag:?}: {error}"));
                 }
             }
+        }
+        if let Err(error) = self.run_git(&["update-ref", "-d", &self.base_ref()]).await {
+            errors.push(format!("delete branch-point ref: {error}"));
         }
         self.delete_unmatched_before_anchors(&tag_list, &mut errors)
             .await;

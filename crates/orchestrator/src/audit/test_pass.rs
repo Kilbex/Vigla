@@ -3,7 +3,7 @@
 //! Rust path uses `cargo test --no-fail-fast` and parses the
 //! summary line. Node path is task 5 (separate file). The shape
 //! returned is [`TestPassScore`] from `report.rs`. Final scores are
-//! routed through [`crate::audit::report::clamp_score`] to enforce
+//! routed through `crate::audit::report::clamp_score` to enforce
 //! the [0.0, 1.0] invariant.
 
 use crate::audit::process::{output_with_timeout, TimedCommandError};

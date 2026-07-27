@@ -155,10 +155,12 @@ Vigla keeps a small dependency surface and audits it in CI:
   substitute for reviewing author identity, captured telemetry, or image
   metadata before publication.
 - The only tolerated advisories are the curated, individually-justified entries
-  in [`.cargo/audit.toml`](.cargo/audit.toml) — known upstream issues with no
-  semver-compatible fix yet, each on a platform/feature path Vigla does not
-  exercise (e.g. Linux-only GTK bindings, Windows-only WinRT XML). Each entry has
-  a re-evaluation trigger and is removed when upstream ships a fix.
+  in [`.cargo/audit.toml`](.cargo/audit.toml). Each entry names the crate, the
+  dependent that pulls it in, whether it is compiled for the shipped macOS
+  target, and a re-evaluation trigger. See
+  [the breakdown below](#tolerated-advisories) — the 21 entries are not one
+  homogeneous class, and it would be false to describe them all as
+  "unexercised platform paths".
 - [Dependabot](.github/dependabot.yml) proposes weekly Cargo/npm and monthly
   Actions updates so the tree does not drift.
 - Third-party GitHub Actions are pinned to immutable commit SHAs, with the
@@ -167,9 +169,58 @@ Vigla keeps a small dependency surface and audits it in CI:
 New advisories on newly-introduced dependencies are expected to fail the build;
 that is the gate working as intended.
 
+### Tolerated advisories
+
+`.cargo/audit.toml` holds 21 ignore entries. They fall into three classes with
+genuinely different risk, and conflating them would overstate the guarantee.
+The counts below are advisory IDs, not affected crate copies — where two
+versions of one crate are reached by different edges, the advisory is filed
+under the class that carries the higher risk.
+Membership was determined with
+`cargo tree -i <crate> --target aarch64-apple-darwin --all-features`,
+cross-checked against `--target all`.
+
+**1 — Not in any resolved dependency graph (1 entry).**
+`RUSTSEC-2023-0071` (rsa 0.9.10, Marvin timing side-channel). `cargo tree -i
+rsa --target all --all-features` prints nothing. The workspace enables only
+sqlx's `runtime-tokio`, `sqlite`, `macros`, and `migrate` features, so
+`sqlx-mysql` — the only path to rsa — stays an inactive optional dependency.
+rsa appears in `Cargo.lock` because a lockfile records the union of optional
+dependencies, not the resolved graph. Nothing links it.
+
+**2 — Compiled for a platform Vigla does not ship (12 entries).** These are
+reached only through Linux or Windows dependency edges of Tauri and are absent
+from the `aarch64-apple-darwin` tree: `RUSTSEC-2024-0411` through
+`RUSTSEC-2024-0420` (gtk-rs GTK3 bindings), `RUSTSEC-2024-0429` (glib 0.18.5
+`VariantStrIter` unsoundness), and `RUSTSEC-2024-0370` (proc-macro-error 1.0.4,
+via `glib-macros` and `gtk3-macros`) — all through Tauri's GTK/WebKit Linux
+stack. The Windows-only copy of quick-xml (0.37.5, via
+`tauri-winrt-notification` ← `notify-rust` ← `tauri-plugin-notification`) is
+also not compiled on macOS, but its two advisories are filed under class 3
+because a macOS-compiled copy of the same crate carries them. **If Linux ever
+becomes a shipped target, these need real triage, not a renewed ignore.**
+
+**3 — Compiled into the shipped macOS binary (8 entries).** These are the ones
+the earlier wording got wrong. They are tolerated on the merits of the specific
+code path, not because they are absent:
+
+| Advisory | Crate | Reached via | Why it is tolerated |
+|---|---|---|---|
+| `RUSTSEC-2026-0194`, `RUSTSEC-2026-0195` | quick-xml 0.39.3 | `plist` ← `tauri-utils` / `tauri-codegen` / `tauri-plugin` / `tauri`, as both a build and a normal dependency | Real high-severity (7.5) XML denial-of-service vulnerabilities against attacker-supplied documents. This copy's only input is the application's own `Info.plist`, emitted by our build and read back from the signed bundle — never third-party XML. Fixed in quick-xml ≥ 0.41.0, but the dependents require `^0.37` and `^0.39.2`, so no semver-compatible bump exists. |
+| `RUSTSEC-2024-0436` | paste 1.0.15 | `specta` (a dependency of essentially every Vigla crate), plus `tokenizers` / `rav1e` under the optional embeddings backend | Unmaintained-crate advisory, no known vulnerability. Proc-macro-only: it runs at build time and emits no runtime surface. |
+| `RUSTSEC-2025-0075`, `-0080`, `-0081`, `-0098`, `-0100` | unic-char-range, unic-common, unic-char-property, unic-ucd-version, unic-ucd-ident (all 0.9.0) | `urlpattern` ← `tauri-utils` ← `tauri`, used to match Tauri capability URL patterns; both a build and a normal dependency | Unmaintained-crate advisories, no known vulnerability. Static Unicode identifier tables — no I/O, no unsafe parsing. |
+
+Across all three classes, only **3** of the 21 IDs are vulnerabilities
+(`RUSTSEC-2023-0071`, `RUSTSEC-2026-0194`, `RUSTSEC-2026-0195`); the other
+**18** are unmaintained-crate or unsoundness warnings. That distinction matters
+for how an entry clears: a vulnerability clears when upstream ships a fix and a
+semver-compatible bump exists, but an unmaintained-crate advisory has no fix to
+wait for — it clears only when the dependent stops using the crate. Every entry
+records its own trigger.
+
 ## Verifying a local build
 
-Vigla does not distribute maintainer-built binaries, signatures, or checksums.
+Vigla distributes no maintainer-built binaries, signatures, or checksums today.
 `./scripts/build.sh` creates one local, ad-hoc-signed DMG and prints its SHA-256
 digest. Keep that terminal output and verify the file before moving or sharing
 it:
@@ -182,5 +233,11 @@ hdiutil verify target/release/bundle/dmg/*.dmg
 To inspect the application after mounting the DMG, run
 `codesign --verify --deep --strict /Volumes/Vigla/Vigla.app` and
 `codesign -dv --verbose=4 /Volumes/Vigla/Vigla.app`. The latter should report
-`Signature=adhoc` and `TeamIdentifier=not set`. A downloaded Vigla application
-or a checksum presented as maintainer-issued is not an official release.
+`Signature=adhoc` and `TeamIdentifier=not set`.
+
+As long as this section says so, a downloaded Vigla application or a checksum
+presented as maintainer-issued is not an official release. A signed
+distribution channel would require changing this document first; a
+[Mac App Store release](docs/roadmap/mac-app-store.md) is under feasibility
+investigation and would make that change, but it is not decided. Treat this
+page, not a third party, as the authority on what an official artifact is.

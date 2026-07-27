@@ -7,10 +7,10 @@
 //! metrics that let us *prove* an unattended 24-hour run actually held.
 //!
 //! Three pieces:
-//!   * [`heartbeat`] — the durable record + atomic file IO.
-//!   * [`stall`] — pure liveness classification
+//!   * `heartbeat` — the durable record + atomic file IO.
+//!   * `stall` — pure liveness classification
 //!     (healthy / idle / stalled / crashed).
-//!   * [`metrics`] — the [`EnduranceReport`] + [`EnduranceGate`] all-day gate.
+//!   * `metrics` — the [`EnduranceReport`] + [`EnduranceGate`] all-day gate.
 //!
 //! The [`EnduranceMonitor`] ties them together over an injectable
 //! [`Clock`], so a full simulated day compresses into a millisecond test

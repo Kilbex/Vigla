@@ -19,3 +19,6 @@ adapter-core = { package = "vigla-adapter-core", path = "../core" }
 event-schema = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+
+[dev-dependencies]
+adapter-conformance = { package = "vigla-adapter-conformance", path = "../conformance" }

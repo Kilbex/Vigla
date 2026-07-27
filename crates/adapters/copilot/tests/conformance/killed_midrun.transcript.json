@@ -1,0 +1,7 @@
+{
+  "lines": [
+    { "stream": "stdout", "text": "copilot: working in /Users/alice/src/demo-app" },
+    { "stream": "stdout", "text": "copilot: editing src/lib.rs" }
+  ],
+  "finalize": "Killed"
+}

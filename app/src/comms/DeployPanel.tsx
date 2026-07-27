@@ -2,7 +2,8 @@
 //
 // Default surface: objective + project folder + Start. That's it.
 // Advanced disclosure (collapsed) carries the power knobs:
-//   - SUPERVISOR model (default Claude)
+//   - SUPERVISOR model (default Claude; "Mock (demo)" runs the
+//     scripted mission runtime instead of a vendor CLI)
 //   - WORKER COUNT    (default "auto" → supervisor decides)
 //   - WORKER CLI roster (one vendor CLI choice and one
 //     applied CLI model per worker when a concrete worker count is
@@ -23,6 +24,7 @@ import {
   COUNT_LABEL,
   DEFAULT_WORKER_MODELS,
   MODEL_LABEL,
+  SUPERVISOR_DETAIL,
   SUPERVISOR_OPTIONS,
   WORKER_COUNT_OPTIONS,
   encodeWorkerModelRoster,
@@ -63,8 +65,8 @@ export default function DeployPanel() {
   });
   const [objective, setObjective] = useState("");
   const [cwd, setCwd] = useState(() => initialDeployPrefs.prefs.cwd ?? "");
-  const [supervisorModel] = useState<SupervisorVendor>(() =>
-    initialSupervisor(initialDeployPrefs.prefs),
+  const [supervisorModel, setSupervisorModel] = useState<SupervisorVendor>(
+    () => initialSupervisor(initialDeployPrefs.prefs),
   );
   const [workerModels, setWorkerModels] = useState<WorkerVendor[]>(() =>
     initialDeployPrefs.workerModels,
@@ -264,7 +266,13 @@ export default function DeployPanel() {
           // to null (the autonomous default). The envelope-fit gate
           // can still force a pause in Direct mode if any of the
           // supervisor's four bounds reports Exceeds.
-          confirm_plan: planMode === "review" ? true : null,
+          //
+          // The scripted supervisor never emits PlanProposed and never
+          // parks at PendingPlanApproval, so sending confirm_plan=true
+          // there would advertise an approval gate that cannot fire.
+          // Send what the runtime will actually honour.
+          confirm_plan:
+            supervisorModel === "auto" || planMode !== "review" ? null : true,
           // Empty array = "no constraint" on the Rust side
           // (`#[serde(default)]` on `Vec<PathBuf>`). Omitting the key
           // entirely is equivalent and keeps the IPC payload minimal
@@ -350,7 +358,10 @@ export default function DeployPanel() {
                 name="supervisor"
                 className="deploy-select"
                 value={supervisorModel}
-                disabled
+                onChange={(e) =>
+                  setSupervisorModel(e.target.value as SupervisorVendor)
+                }
+                disabled={submitting}
                 aria-label="supervisor model"
               >
                 {SUPERVISOR_OPTIONS.map((m) => (
@@ -360,7 +371,7 @@ export default function DeployPanel() {
                 ))}
               </select>
               <span className="mission-review__faint">
-                Additional supervisor providers are roadmap work.
+                {SUPERVISOR_DETAIL[supervisorModel]}
               </span>
             </label>
             <label
@@ -444,7 +455,11 @@ export default function DeployPanel() {
             </section>
             <fieldset
               className="deploy-field deploy-field--advanced deploy-field--radio"
-              disabled={submitting}
+              // Disabled rather than coerced: `planMode` is a global
+              // localStorage preference shared with Settings, so silently
+              // rewriting it here would change the user's default for real
+              // supervisor runs too.
+              disabled={submitting || supervisorModel === "auto"}
             >
               <legend className="deploy-field-label">Plan mode</legend>
               <div className="deploy-radio-options">
@@ -479,6 +494,12 @@ export default function DeployPanel() {
                   <span className="deploy-radio-label">Review</span>
                 </label>
               </div>
+              {supervisorModel === "auto" && (
+                <span className="mission-review__faint">
+                  The mock supervisor proposes no plan, so there is nothing to
+                  review. Your saved Plan mode is kept for real runs.
+                </span>
+              )}
             </fieldset>
             <label
               className="deploy-field deploy-field--advanced"
@@ -512,6 +533,23 @@ export default function DeployPanel() {
             )}
           </div>
         </details>
+
+        {/* The supervisor choice is sticky and lives inside the
+            collapsed Advanced disclosure, so a returning user would
+            otherwise not see which supervisor is about to run. Restate
+            it at the CTA, and say plainly that the repository is
+            written to for real. */}
+        {supervisorModel === "auto" && (
+          <div
+            className="deploy-status"
+            role="status"
+            data-testid="deploy-mock-supervisor-notice"
+          >
+            Mock supervisor: no vendor CLI, no credentials, no token
+            spend — but the mission is real. Branches, worktrees, and
+            commits land in the selected folder.
+          </div>
+        )}
 
         {!canStart && !submitting && (
           <div className="deploy-status" role="status">

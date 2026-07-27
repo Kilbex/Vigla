@@ -5,15 +5,28 @@ items move based on what operators actually need. Open a GitHub issue
 (or comment on an existing one) to influence priorities; the fastest
 way to move something up this list is a focused PR.
 
+Tracking is by label, not by fixed issue number, so these views stay
+correct as issues open and close:
+[roadmap](https://github.com/Kilbex/Vigla/issues?q=is%3Aissue+label%3Aroadmap) ·
+[platform/linux](https://github.com/Kilbex/Vigla/issues?q=is%3Aissue+label%3A%22platform%2Flinux%22) ·
+[platform/windows](https://github.com/Kilbex/Vigla/issues?q=is%3Aissue+label%3A%22platform%2Fwindows%22) ·
+[good first issue](https://github.com/Kilbex/Vigla/issues?q=is%3Aissue+label%3A%22good+first+issue%22).
+The labels and the seeded issues behind them are created by the
+maintainer bootstrap ([`.github/issue-seeds.mjs`](./.github/issue-seeds.mjs),
+applied by [`scripts/bootstrap-github.mjs`](./scripts/bootstrap-github.mjs)),
+so a view is legitimately empty until that has run.
+
 ## Now — v0.1.x (hardening)
 
 The orchestrator, vendor adapters, memory kernel, and operations UI
 are implemented. Current focus:
 
-- **Real-CLI coverage.** Keep the Claude / Codex / Antigravity gates green
-  against fast-moving vendor CLIs; expand fixture coverage for failure and
-  quota paths. Gemini remains a legacy / enterprise compatibility path after
-  consumer Login with Google ended on 2026-06-18.
+- **Real-CLI coverage.** Keep the Claude / Codex / Antigravity / Gemini
+  real-CLI gates green against fast-moving vendor CLIs. These are `#[ignore]`d
+  local gates that no CI workflow runs, so "green" means a maintainer ran them
+  by hand; making that evidence continuous is the work. Gemini remains a
+  legacy / enterprise compatibility path after consumer Login with Google
+  ended on 2026-06-18.
 - **Local packaging.** Keep the one-command, ad-hoc-signed `.dmg` build reliable
   on clean Macs without publishing maintainer-built artifacts.
 - **First-run polish.** CLI discovery, auth diagnostics, and the
@@ -24,12 +37,14 @@ are implemented. Current focus:
 
 ## Next — v0.2
 
-- **End-to-end gates for profile-backed vendors.** Antigravity is verified;
-  Kiro and GitHub Copilot still need real-CLI integration tests before they
-  count as supported.
-- **Non-Claude supervisors.** The supervisor playbook is
-  vendor-portable in design; verification currently gates on Claude.
-  Codex-backed supervision is the first candidate.
+- **End-to-end gates for profile-backed vendors.** Antigravity has an opt-in
+  local real-CLI gate (`crates/orchestrator/tests/real_antigravity_run.rs`);
+  Kiro and GitHub Copilot have adapter goldens only and still need real-CLI
+  integration tests before they count as supported.
+- **A second real supervisor.** Supervision is Claude-only today —
+  `supervisor_model` accepts `claude` or the scripted `auto` mock and rejects
+  everything else. The playbook is vendor-portable in design; Codex-backed
+  supervision is the first candidate.
 - **New vendor adapters.** The adapter boundary (one pure crate per
   vendor: CLI bytes → canonical events) is the designed extension
   point — an OpenCode adapter proposal is already scoped in
@@ -39,7 +54,10 @@ are implemented. Current focus:
 - **[Mac App Store feasibility](./docs/roadmap/mac-app-store.md).** Prove the
   core mission flow inside Apple's required App Sandbox — persistent access to
   a user-selected repository, worktree operations, and user-installed CLI
-  execution — before committing to store packaging or promotion.
+  execution. This is an investigation, not a commitment: a store release would
+  replace the source-build trust model ("no maintainer binary, no signing
+  identity to trust") with Apple's, and that trade is not decided. The
+  feasibility answer comes first.
 - **True post-verdict continuation.** The persisted Extend wire shape is kept
   replay-compatible, but the current UI offers only Merge and Discard and the
   runtime rejects Extend. Re-enable it only with a tested supervisor re-entry
@@ -51,8 +69,11 @@ are implemented. Current focus:
   [Windows](./docs/roadmap/windows.md).** The orchestrator and adapters are portable
   Rust and the UI is Tauri; the work is packaging, path handling, and
   notification/UX parity — not a rewrite. This is the most-requested
-  scope decision; if you want it, say so on the tracking issue so it
-  can be prioritized with evidence.
+  scope decision; if you want it, say so under
+  [platform/linux](https://github.com/Kilbex/Vigla/issues?q=is%3Aissue+label%3A%22platform%2Flinux%22)
+  or
+  [platform/windows](https://github.com/Kilbex/Vigla/issues?q=is%3Aissue+label%3A%22platform%2Fwindows%22)
+  so it can be prioritized with evidence.
 - **Richer memory retrieval.** Embedding-backed retrieval is optional
   today; make hybrid ranking the verified default and surface memory
   provenance in the UI.

@@ -1,0 +1,7 @@
+{
+  "lines": [
+    { "stream": "stdout", "text": "antigravity: workspace /Users/alice/src/demo-app" },
+    { "stream": "stderr", "text": "antigravity: HTTP 429 rate limit exceeded, retry in 60s" }
+  ],
+  "finalize": "Failed:1"
+}

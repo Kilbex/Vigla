@@ -7,7 +7,8 @@
 //! integration remains serial against the supervisor branch.
 //!
 //! Public entry points:
-//! - [`validate`] — accept a list of [`TaskDescriptor`]s, return a
+//! - [`fn@validate`] — accept a list of
+//!   [`crate::mission_event::TaskDescriptor`]s, return a
 //!   topologically-validated [`Dag`] or [`GraphError`].
 //! - [`Scheduler`] — drive ready/running/done state as workers
 //!   spawn and complete.

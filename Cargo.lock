@@ -6739,6 +6739,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "vigla-adapter-conformance",
  "vigla-adapter-core",
  "vigla-event-schema",
 ]
@@ -6760,6 +6761,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "vigla-adapter-conformance",
  "vigla-adapter-core",
  "vigla-event-schema",
 ]
@@ -6780,6 +6782,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "vigla-adapter-conformance",
  "vigla-adapter-core",
  "vigla-event-schema",
 ]
@@ -6799,6 +6802,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "vigla-adapter-conformance",
  "vigla-adapter-core",
  "vigla-event-schema",
 ]
@@ -6809,6 +6813,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "vigla-adapter-conformance",
  "vigla-adapter-core",
  "vigla-event-schema",
 ]

@@ -19,11 +19,15 @@ Implementation of the supervisor-as-arbiter quality-audit subsystem.
 ## Tiers
 
 - **Smoke** (~30s budget; typically <1ms in practice) — scope + security only.
+  Runs no subprocess.
 - **Standard** (~2min) — Smoke + test_pass + lint.
-- **Deep** (~5min) — Standard + regression (requires baseline).
+- **Deep** (~5min) — reserved for a heavier pass. `audit_submission` branches
+  only on `tier != Smoke`, so Deep behaves exactly like Standard today.
 
-Tier is auto-selected from diff size and security-flag hits via
-`AuditTier::auto_select`, or set explicitly via `AuditInput.tier`.
+`AuditTier::auto_select` derives a tier from diff size and security-flag hits,
+but the mission path does not call it: `run_task` passes the constant
+`ArbiterPolicy::default_audit_tier` (Standard). Callers set `AuditInput.tier`
+explicitly.
 
 ## Composite
 

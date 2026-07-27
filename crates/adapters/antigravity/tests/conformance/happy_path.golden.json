@@ -1,0 +1,93 @@
+{
+  "context_requests": [],
+  "events": [
+    {
+      "payload": {
+        "state": "idle"
+      },
+      "schema_version": "2.0",
+      "seq": 0,
+      "task_id": "t-conf",
+      "ts": "<ts>",
+      "type": "state_change",
+      "worker_id": "w-conf"
+    },
+    {
+      "payload": {
+        "from": "idle",
+        "state": "executing"
+      },
+      "schema_version": "2.0",
+      "seq": 1,
+      "task_id": "t-conf",
+      "ts": "<ts>",
+      "type": "state_change",
+      "worker_id": "w-conf"
+    },
+    {
+      "payload": {
+        "level": "info",
+        "line": "antigravity: workspace /Users/alice/src/demo-app",
+        "stream": "stdout"
+      },
+      "schema_version": "2.0",
+      "seq": 2,
+      "task_id": "t-conf",
+      "ts": "<ts>",
+      "type": "log",
+      "worker_id": "w-conf"
+    },
+    {
+      "payload": {
+        "level": "info",
+        "line": "antigravity: editing src/lib.rs",
+        "stream": "stdout"
+      },
+      "schema_version": "2.0",
+      "seq": 3,
+      "task_id": "t-conf",
+      "ts": "<ts>",
+      "type": "log",
+      "worker_id": "w-conf"
+    },
+    {
+      "payload": {
+        "level": "error",
+        "line": "antigravity: 1 file changed",
+        "stream": "stderr"
+      },
+      "schema_version": "2.0",
+      "seq": 4,
+      "task_id": "t-conf",
+      "ts": "<ts>",
+      "type": "log",
+      "worker_id": "w-conf"
+    },
+    {
+      "payload": {
+        "from": "executing",
+        "state": "done"
+      },
+      "schema_version": "2.0",
+      "seq": 5,
+      "task_id": "t-conf",
+      "ts": "<ts>",
+      "type": "state_change",
+      "worker_id": "w-conf"
+    },
+    {
+      "payload": {
+        "summary": "antigravity worker finished"
+      },
+      "schema_version": "2.0",
+      "seq": 6,
+      "task_id": "t-conf",
+      "ts": "<ts>",
+      "type": "completion",
+      "worker_id": "w-conf"
+    }
+  ],
+  "memory_intents": [],
+  "quota_signal": null,
+  "session_id": null
+}

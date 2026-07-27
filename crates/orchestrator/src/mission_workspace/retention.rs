@@ -51,6 +51,9 @@ impl Default for RetentionPolicy {
 /// 4. Keep the first `max_missions` missions; for older missions,
 ///    additionally keep tags newer than `max_age_days`.
 /// 5. Delete every tag not in the keep set.
+/// 6. Drop the `refs/vigla/base/{mid}` branch-point ref of any mission this
+///    pass emptied. That ref only serves the staged-revert path, which needs a
+///    surviving pre-integration tag to have anything to rewind.
 ///
 /// `now_unix_ms` is the wall clock used to compute the age cutoff —
 /// passed in rather than read internally so tests can simulate a
@@ -161,6 +164,38 @@ pub async fn compact_once(
             )));
         }
         pruned += 1;
+    }
+
+    // A mission whose last pre-integration tag just went away can no longer be
+    // staged-reverted, so its branch-point ref is dead weight. Scope the sweep
+    // to missions this pass actually emptied: a mission that has started but
+    // not yet integrated anything owns a base ref and no tags, and its revert
+    // authority must survive.
+    let mut emptied: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for (tag, mid, _) in &tags {
+        if to_delete.contains(tag) {
+            emptied.insert(mid.as_str());
+        }
+    }
+    let surviving: std::collections::HashSet<&str> = tags
+        .iter()
+        .filter(|(tag, _, _)| !to_delete.contains(tag))
+        .map(|(_, mid, _)| mid.as_str())
+        .collect();
+    for mid in emptied.difference(&surviving) {
+        let out = tokio::process::Command::new("git")
+            .arg("-C")
+            .arg(repo_root)
+            .args(["update-ref", "-d", &format!("refs/vigla/base/{mid}")])
+            .output()
+            .await?;
+        if !out.status.success() {
+            return Err(std::io::Error::other(format!(
+                "git update-ref -d refs/vigla/base/{mid} failed in {}: {}",
+                repo_root.display(),
+                String::from_utf8_lossy(&out.stderr).trim()
+            )));
+        }
     }
 
     Ok(pruned)
@@ -275,7 +310,7 @@ fn parse_iso_strict_ms(s: &str) -> Option<u64> {
     Some(utc_secs as u64 * 1000)
 }
 
-/// Parse the RFC3339 timestamp written by [`rfc3339_now`].
+/// Parse the RFC3339 timestamp written by [`crate::ids::rfc3339_now`].
 /// Tolerates the canonical 24-char `YYYY-MM-DDTHH:MM:SS.mmmZ` shape
 /// our code emits and the 20-char `Z`-suffixed shape some other
 /// emitters use. Delegates to [`parse_iso_strict_ms`] for anything
@@ -403,6 +438,68 @@ mod tests {
                 .unwrap(),
             sha
         );
+    }
+
+    #[tokio::test]
+    async fn compact_once_drops_the_branch_point_ref_of_an_emptied_mission() {
+        let (w, _td) = bootstrap_workspace_with_supervisor_branch().await;
+        w.create_pre_merge_tag(0).await.unwrap();
+        assert!(
+            w.base_point_sha().await.unwrap().is_some(),
+            "the supervisor branch must have recorded a branch point"
+        );
+
+        let pruned = compact_once(
+            w.repo_root(),
+            RetentionPolicy {
+                max_missions: 0,
+                max_age_days: 0,
+            },
+            now_ms() + 30 * MS_PER_DAY,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(pruned, 1, "the one pre-merge tag should be pruned");
+        assert_eq!(
+            w.base_point_sha().await.unwrap(),
+            None,
+            "a mission with no pre-integration tag left cannot be staged-reverted, \
+             so its branch-point ref must not survive compaction"
+        );
+    }
+
+    #[tokio::test]
+    async fn compact_once_keeps_the_branch_point_of_a_mission_with_no_tags_yet() {
+        let (w, _td) = bootstrap_workspace_with_supervisor_branch().await;
+        let base = w.base_point_sha().await.unwrap();
+        assert!(base.is_some());
+
+        // Another mission's tags age out. The in-flight mission has integrated
+        // nothing, so it owns a branch point and no tags — its revert authority
+        // must survive a pass it was never part of.
+        let sha = w
+            .run_git(&["rev-parse", &w.supervisor_branch()])
+            .await
+            .unwrap()
+            .trim()
+            .to_string();
+        w.run_git(&["tag", "vigla/pre-merge/other-mid/0", &sha])
+            .await
+            .unwrap();
+
+        compact_once(
+            w.repo_root(),
+            RetentionPolicy {
+                max_missions: 0,
+                max_age_days: 0,
+            },
+            now_ms() + 30 * MS_PER_DAY,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(w.base_point_sha().await.unwrap(), base);
     }
 
     #[tokio::test]

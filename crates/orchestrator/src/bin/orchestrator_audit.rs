@@ -1,7 +1,7 @@
 //! Ad-hoc audit CLI for debugging.
 //!
 //! Usage:
-//!   orchestrator_audit --root <path> [--scope <p1,p2>] [--tier smoke|standard|deep]
+//!   `orchestrator_audit --root <path> [--scope <p1,p2>] [--tier smoke|standard|deep]`
 
 use orchestrator::audit::{audit_submission, AuditInput, AuditTier};
 use std::path::PathBuf;

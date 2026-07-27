@@ -1,0 +1,84 @@
+{
+  "context_requests": [],
+  "events": [
+    {
+      "payload": {
+        "state": "idle"
+      },
+      "schema_version": "2.0",
+      "seq": 0,
+      "task_id": "t-conf",
+      "ts": "<ts>",
+      "type": "state_change",
+      "worker_id": "w-conf"
+    },
+    {
+      "payload": {
+        "from": "idle",
+        "state": "executing"
+      },
+      "schema_version": "2.0",
+      "seq": 1,
+      "task_id": "t-conf",
+      "ts": "<ts>",
+      "type": "state_change",
+      "worker_id": "w-conf"
+    },
+    {
+      "payload": {
+        "level": "debug",
+        "line": "Summarize the synthetic fixture in one sentence.",
+        "stream": "stdout",
+        "tag": "user"
+      },
+      "schema_version": "2.0",
+      "seq": 2,
+      "task_id": "t-conf",
+      "ts": "<ts>",
+      "type": "log",
+      "worker_id": "w-conf"
+    },
+    {
+      "payload": {
+        "cache_read_tokens": 0,
+        "input_tokens": 32,
+        "output_tokens": 0,
+        "usd": 0.0
+      },
+      "schema_version": "2.0",
+      "seq": 3,
+      "task_id": "t-conf",
+      "ts": "<ts>",
+      "type": "cost",
+      "worker_id": "w-conf"
+    },
+    {
+      "payload": {
+        "category": "rate_limit",
+        "error": "RESOURCE_EXHAUSTED: quota exceeded for the day",
+        "retryable": false
+      },
+      "schema_version": "2.0",
+      "seq": 4,
+      "task_id": "t-conf",
+      "ts": "<ts>",
+      "type": "failure",
+      "worker_id": "w-conf"
+    },
+    {
+      "payload": {
+        "from": "executing",
+        "state": "failed"
+      },
+      "schema_version": "2.0",
+      "seq": 5,
+      "task_id": "t-conf",
+      "ts": "<ts>",
+      "type": "state_change",
+      "worker_id": "w-conf"
+    }
+  ],
+  "memory_intents": [],
+  "quota_signal": "QuotaSignal { estimated_reset_at_ms: None }",
+  "session_id": "fixture-gemini-session-001"
+}

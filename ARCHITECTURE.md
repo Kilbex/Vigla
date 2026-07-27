@@ -69,14 +69,14 @@ Local, event-sourced long-term memory. Six anchoring design choices:
 
 | # | Design choice | Where |
 |---|---|---|
-| 1 | **Single-writer to project memory.** Vendor native files (`CLAUDE.md`/`AGENTS.md`/`GEMINI.md`) are render *targets*, never read as truth. | `memory/mod.rs:4-7` |
-| 2 | **Event-sourced.** Witnesses are append-only; confidence is *derived* by `scoring.rs`, not stored. Weight changes need no migration. | `memory/witnesses.rs:1-7` |
-| 3 | **Anchored block.** Kernel owns one delimited region per native file; everything outside is preserved byte-exact across writes. | `memory/coherence.rs:1-13` |
-| 4 | **Per-repo isolation.** A registry opens one kernel per canonical repo root at `<repo>/.vigla/memory/memory.sqlite`. | `memory/registry.rs:1-37` |
-| 5 | **Pre-event secret scanning.** Patterns + 20-char-window entropy detector run *before* `MemoryProposed` persists. | `memory/scanner.rs:1-19` |
-| 6 | **Fail-soft attach.** Errors from listing / composing / rendering are swallowed + logged; memory must never block mission dispatch. | `memory/attach.rs:9-18` |
+| 1 | **Single-writer to project memory.** Vendor native files (`CLAUDE.md`/`AGENTS.md`/`GEMINI.md`) are render *targets*, never read as truth. | `memory/mod.rs` (module doc) |
+| 2 | **Event-sourced.** Witnesses are append-only; confidence is *derived* by `scoring.rs`, not stored. Weight changes need no migration. | `memory/witnesses.rs` (module doc) |
+| 3 | **Anchored block.** Kernel owns one delimited region per native file; everything outside is preserved byte-exact across writes. | `memory/coherence.rs` (module doc) |
+| 4 | **Per-repo isolation.** A registry opens one kernel per canonical repo root at `<repo>/.vigla/memory/memory.sqlite`. | `memory/registry.rs` (module doc) |
+| 5 | **Pre-event secret scanning.** Patterns + 20-char-window entropy detector run *before* `MemoryProposed` persists. | `memory/scanner.rs` (module doc) |
+| 6 | **Fail-soft attach.** Errors from listing / composing / rendering are swallowed + logged; memory must never block mission dispatch. | `memory/attach.rs` (module doc) |
 
-**Phase status** (`memory/mod.rs:9-45`). P0/P1 shipped. P2 completed the
+**Phase status** (`memory/mod.rs` phase table). P0/P1 shipped. P2 completed the
 closed loop: *worker proposes → supervisor ratifies → mission accept promotes →
 next mission's composer picks it up*. P3 is also complete: alias-expanded BM25,
 optional local MiniLM embeddings, MMR diversity, retrieval-driven composition,
@@ -92,7 +92,7 @@ Owned ──── (supervisor ratify + confidence ≥ τ_kind) ────► 
 Invalid                  Disputed                         (back to Owned)
 ```
 
-**Confidence formula** (`scoring.rs:54-72`) — pure function over witness
+**Confidence formula** (`scoring.rs::confidence`) — pure function over witness
 rows:
 
 ```
@@ -103,9 +103,9 @@ confidence = sigmoid(raw)         # ∈ (0, 1)
 ```
 
 Coefficients `WIT_W = 1.0`, `AGE_W = 0.2`, `CONF_W = 0.5`
-(`scoring.rs:28-30`).
+(`scoring.rs`: `WIT_W`, `AGE_W`, `CONF_W`).
 
-**Promotion thresholds** are kind-asymmetric (`policy.rs:30-43`):
+**Promotion thresholds** are kind-asymmetric (`policy.rs::fallback_threshold`):
 
 | Kind | Threshold | Floor with user-authored |
 |---|---|---|
@@ -115,7 +115,7 @@ Coefficients `WIT_W = 1.0`, `AGE_W = 0.2`, `CONF_W = 0.5`
 | `decision` | 0.85 | 0.50 |
 | (unknown) | 0.90 | — |
 
-The **user-oracle fast path** (`policy.rs:3-17`,
+The **user-oracle fast path** (`policy.rs` module doc;
 `USER_AUTHORED_FAST_PATH_BAR = 0.5`) treats the effective bar as
 `min(τ_kind, 0.5)` when a `UserAuthored` witness is present —
 preserves the *"talking to Vigla teaches it"* promise.
@@ -134,7 +134,7 @@ preserves the *"talking to Vigla teaches it"* promise.
 | `scoring.rs` | Stateless confidence sigmoid. |
 | `policy.rs` | Promotion thresholds + user-oracle fast path. |
 | `reflection.rs` | Post-mission consolidation. `on_accept` / `on_scrub`. Idempotent per `(mission_id, kind)`. |
-| `scanner.rs` | Pre-event secret detection (fixed patterns + entropy window ≥ 4.0). |
+| `scanner.rs` | Pre-event secret detection (fixed patterns, ≥ 4.0 bits/char over a 20-char entropy window, and a 32-char contiguous-hex rule). |
 | `intent_router.rs` + `intent_sink.rs` | Pure router from worker `MemoryIntent` → kernel `on_proposal`. |
 | `registry.rs` | Per-repo kernel pool. |
 | `handoff.rs` | Cross-worker structured notes for DAG-downstream tasks. |
@@ -165,11 +165,11 @@ right worker at the right time.
 
 | Piece | What it does | File |
 |---|---|---|
-| **Composer** | Manual or retrieval-selected bundle assembly. Same ordered note IDs ⇒ same `bundle_hash`; budget overflow drops the tail. | `memory/composer.rs:1-26` |
+| **Composer** | Manual or retrieval-selected bundle assembly. Same ordered note IDs ⇒ same `bundle_hash`; budget overflow drops the tail. | `memory/composer.rs` (module doc) |
 | **Attach** | Post-worktree-create / pre-dispatch injection. Builds a retrieval brief from mission/task/handoff context, retrieves and renders promoted notes, then falls back to manual budgeted composition on failure. Fail-soft. | `memory/attach.rs` |
-| **`MemoryAdapter` trait** | Pure transforms per vendor (`native_file_name`, `anchor_open/close`, `max_tokens`, `render_block_body`). | `memory/adapter.rs:1-25` |
+| **`MemoryAdapter` trait** | Pure transforms per vendor (`native_file_name`, `anchor_open/close`, `max_tokens`, `render_block_body`). | `memory/adapter.rs::MemoryAdapter` |
 | **Context-request loop** | Worker emits `RequestContext { kind, detail }` → ranked promoted-note match (BM25 plus optional embeddings) → match supplied next turn; a miss escalates. | `memory/context_match.rs` |
-| **Drift detection** | `find_anchor_span` + `detect_drift` at the start of each worker turn. Outcomes: `Drift` / `AnchorMissing` / `FileMissing`. | `memory/coherence.rs:5-17` |
+| **Drift detection** | `find_anchor_span` + `detect_drift` at the start of each worker turn. Outcomes: `Drift` / `AnchorMissing` / `FileMissing`. | `memory/coherence.rs::find_anchor_span` / `::detect_drift` |
 
 **Context-request flow:**
 
@@ -187,7 +187,7 @@ context_match::match_context (BM25 + optional embedding ranking;
                            (user sees the gap in the inbox)
 ```
 
-**Budgets** (`memory/hierarchy.rs:20-32`):
+**Budgets** (`memory/hierarchy.rs` constants):
 
 | Constant | Value | Meaning |
 |---|---|---|
@@ -240,7 +240,7 @@ Six concerns. Each one is a separate file or directory.
 `Supervisor` owns running children + cancellation handles + a
 `session_ids` map captured once per worker and persisted to the
 repository. `SupervisorError` enumerates the public failure surface
-(`supervisor.rs:32-58`): `UnknownScript`, `MockHarnessMissing`,
+(`supervisor.rs::SupervisorError`): `UnknownScript`, `MockHarnessMissing`,
 `WorkerNotFound`, `WorkerStillRunning`, `ResumeUnsupported(Vendor)`,
 `SessionIdMissing`, `Io`, `Repository`.
 
@@ -257,8 +257,9 @@ explicit warning logged on persist failure.
 Three things this module does that nothing else does:
 
 1. **Spawns real profile-backed vendor CLIs** inside the worker worktree.
-   Antigravity's production route is covered by the opt-in hosted gate in
-   `crates/orchestrator/tests/real_antigravity_run.rs`.
+   Antigravity's production route is covered by the opt-in local real-CLI gate
+   in `crates/orchestrator/tests/real_antigravity_run.rs`, which is
+   `#[ignore]`d and runs in no CI workflow.
 2. **Commits on the worker's behalf** — workers are forbidden from
    running `git`. Concentrating commits in the orchestrator gives
    atomicity (one commit per submission), boundary clarity ("done" =
@@ -327,7 +328,7 @@ additional platform hosts from duplicating business logic.
 Created → Executing ⇄ PendingPlanApproval
              │            └─ reject_plan → Aborted
              ├─⇄ Reviewing
-             ├─⇄ Paused { vendor }       (automatic quota resume)
+             ├─⇄ Paused { reason }       (PauseReason names the vendor; automatic quota resume)
              ├─→ Attention               (user chooses merge/discard)
              └─→ CompletePendingMerge → Merged | Discarded
 
@@ -365,9 +366,33 @@ the mission's validated local `target_ref`. A pre-integration tag protects each
 staged task merge. Final merge also records durable `before` and `merged` tags
 for the target branch, then removes the mission worktrees and branches. The
 user-facing rollback applies a normal Git revert to the recorded merge commit,
-so commits added afterward remain intact. The staged recovery proof separately
-selects the earliest pre-integration tag to remove every task integration.
-Abort intentionally retains mission artifacts for diagnosis. A separate,
+so commits added afterward remain intact — that is `revert_merged_mission`, the
+only path the shipping Tauri command uses.
+
+`revert_mission` additionally covers the not-yet-merged case: with no final
+anchors it rewinds the supervisor branch to the mission's branch point, which
+`create_supervisor_branch` records once as `refs/vigla/base/<mission-id>`. It
+falls back to the lowest-index `vigla/pre-merge/<mission-id>/N` tag only for
+missions branched before that ref existed. The `/0` snapshot is *not* reliably
+the branch point: integration indexes are handed out when the task is spawned
+onto the `JoinSet`, while integration itself is serialised first-come by a
+mutex, so a higher-index task can tag the branch point first.
+
+Ref namespaces the mission owns:
+
+| Ref | What |
+|---|---|
+| `refs/heads/vigla/<mid>/...` | supervisor and per-worker branches |
+| `refs/tags/vigla/pre-merge/<mid>/N` | pre-integration snapshot per staged task merge |
+| `refs/tags/vigla/snap/...` | intermediate mission snapshots |
+| `refs/tags/vigla/revert/...` | durable `before` / `merged` target-branch anchors |
+| `refs/vigla/base/<mid>` | branch point of the supervisor branch |
+
+`refs/vigla/base/<mid>` is deliberately a plain ref rather than a tag, so it
+stays out of `git tag --list`, `git branch`, and the default push refspec.
+`discard` deletes it with the pre-merge and snap tags; the durable
+`vigla/revert/...` anchors survive. Abort intentionally retains mission
+artifacts for diagnosis. A separate,
 durably tracked cleanup action is authorized only by an `aborted` outcome with
 the exact recorded repository identity; it removes the mission's worktrees,
 branches, and intermediate tags without touching the target branch.
@@ -376,9 +401,9 @@ branches, and intermediate tags without touching the target branch.
 
 **Arbiter** (`crates/orchestrator/src/arbiter/`) — pure policy function.
 Consumes `AuditReport`, emits `ArbiterDecision`. No IO, no vendor calls
-(`arbiter/mod.rs:1-12`).
+(`arbiter/mod.rs` module doc).
 
-Four authority bounds (`arbiter/bound.rs:14-26`):
+Four authority bounds (`arbiter/bound.rs::AuthorityBound`):
 
 | Bound | Trips when |
 |---|---|
@@ -387,10 +412,10 @@ Four authority bounds (`arbiter/bound.rs:14-26`):
 | **Risk** | A risk detector tripped (schema migration, mass deletion, secret-touching change) |
 | **Quality** | Audit composite below policy floor AND rework budget exhausted |
 
-Priority order (`arbiter/mod.rs:36-44`): Scope → Risk → Quality. Scope
+Priority order (`arbiter/mod.rs::decide`): Scope → Risk → Quality. Scope
 and Risk always escalate; Quality is recoverable via rework budget.
 
-Decisions (`arbiter/decision.rs:21-37`): `Accept(payload)`,
+Decisions (`arbiter/decision.rs::ArbiterDecision`): `Accept(payload)`,
 `Extend { rework_kind, attempts_remaining }`, `Scrub { reason,
 retained_artifacts, partial_audit }`, `Escalate { bound, evidence,
 suggested_user_action }`.
@@ -399,7 +424,7 @@ suggested_user_action }`.
 "is this done?" verdict. Pure module; emitted as
 `MissionEventKind::CompletionVerdictRendered`.
 
-Risk band boundaries (`judgment/risk_band.rs:29-38`):
+Risk band boundaries (`judgment/risk_band.rs::score_risk`):
 
 - `Low` ⇐ overall ≥ 0.85 AND zero security flags AND quiet recovery
   (total < 3 occurrences)
@@ -421,9 +446,16 @@ Five sub-scorers blended by `composite::blend_overall` with a
 | `lint` | Linter compliance |
 | `security` | `SecurityFlagKind` (mass deletion, schema migration, secret-touching, …) |
 
-`AuditTier` selects which scorers run. Smoke performs only pure scope/security
-checks. Standard and Deep run tests and lint; regression contributes only when a
-baseline was captured, so a missing baseline cannot inflate the composite.
+`AuditTier` selects which scorers run, and `audit_submission` branches on
+exactly one boundary: Smoke runs only the pure scope and security functions (no
+subprocess); Standard and Deep both run the project's test runner and linter,
+and add regression only when a baseline was captured, so a missing baseline
+cannot inflate the composite. Standard and Deep are therefore identical in what
+they execute today — the distinction exists in `AuditTier::auto_select`'s
+thresholds (any risk hit, or >20 files / >1000 lines, selects Deep), which the
+mission loop does not yet call: `run_task.rs` passes
+`ArbiterPolicy::default_audit_tier`, a constant `Standard`. Every supervised
+mission pass audits at Standard.
 
 **Recovery** (`crates/orchestrator/src/recovery/`) — `quota.rs` owns
 per-vendor rolling-window state, persisted to `vendor_quota_state`
@@ -448,8 +480,11 @@ History does not depend on an open frontend listener.
 **Repository** (`crates/orchestrator/src/repository/mod.rs`) — SQLite via sqlx;
 pool `POOL_ACQUIRE_TIMEOUT = 5s`, per-connection
 `SQLITE_BUSY_TIMEOUT = 3s`. File-pool max 5 connections. Migrations
-0001–0014 in `crates/orchestrator/migrations/`, with an upgrade-path test
-at `crates/orchestrator/tests/migration_upgrade.rs`.
+0001–0020 in `crates/orchestrator/migrations/`, with an upgrade-path test
+at `crates/orchestrator/tests/migration_upgrade.rs`. The same migration set is
+applied to the application-support database and to each per-repo memory
+database (`MemoryKernel::open_for_repo`); the migration range quoted here is
+pinned to the highest-numbered file by `scripts/architecture-facts.test.mjs`.
 
 ## Cross-Cutting
 
@@ -469,8 +504,8 @@ memory vocabulary (`MemoryEvent`, `MemoryNoteAuthored`,
 - `crates/adapters/claude` — `claude -p --output-format stream-json` parser
 - `crates/adapters/codex` — `codex --json` parser
 - `crates/adapters/antigravity` — production Antigravity raw-log adapter;
-  its hosted gate exercises the full spawn, event, submission, integration,
-  and verification path
+  its opt-in local real-CLI gate exercises the full spawn, event, submission,
+  integration, and verification path
 - `crates/adapters/kiro` — Kiro raw-log adapter with terminal synthesis
 - `crates/adapters/copilot` — Copilot raw-log adapter with terminal synthesis
 - `crates/adapters/gemini` — maintained legacy Gemini stream parser
@@ -481,7 +516,7 @@ memory vocabulary (`MemoryEvent`, `MemoryNoteAuthored`,
   doesn't edit files; it semantically reviews a bounded committed-diff excerpt
   after every real worker pass and makes mission-level decisions which map to
   mission events on a separate channel
-  (`crates/adapters/supervisor/src/lib.rs:7-19`).
+  (`crates/adapters/supervisor/src/lib.rs` module doc).
 
 **Mock harness** (`crates/mock-harness/`) — bundled scripts for
 credential-free demos: `claude_happy`, `codex_blocked`, `gemini_happy`,
@@ -490,12 +525,15 @@ credential-free demos: `claude_happy`, `codex_blocked`, `gemini_happy`,
 
 ## Testing Strategy
 
-- Adapter crates should have fixture-driven tests.
+- Adapter crates are fixture-driven. All six shipping vendor adapters run
+  through the shared `vigla-adapter-conformance` harness with committed
+  transcript/golden pairs; `claude`, `codex`, and `gemini` add
+  `from_fixture.rs` suites over `tests/fixtures/*.jsonl`.
 - Orchestrator business logic should be testable without Tauri.
 - Tauri host tests should focus on IPC-adjacent glue and platform
   probes.
-- Real CLI tests stay ignored by default because they require local
-  credentials and installed tools.
+- Real-CLI tests are `#[ignore]`d and run in no CI workflow: they require an
+  installed binary and local credentials, so a maintainer opts in by hand.
 
 Useful commands:
 
@@ -516,8 +554,10 @@ that binary exists. `cargo xtask {build,clippy,ci}` cover the other gates.
 
 1. Add or copy a crate under `crates/adapters/<vendor>/`.
 2. Implement `adapter_core::Adapter`.
-3. Add captured JSONL or text fixtures that reflect the vendor CLI
-   output.
+3. Add transcript fixtures built only from line types the parser
+   dispatches on. Synthetic is fine and is what every shipping adapter
+   uses; a real capture must be redacted and must contain no token,
+   account, or private path.
 4. Add parser tests for normal completion, failure,
    cancellation/finalize behavior, and session id capture if the CLI
    supports resume.

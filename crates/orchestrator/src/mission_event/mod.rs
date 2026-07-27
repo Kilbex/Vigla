@@ -28,7 +28,7 @@ pub struct TaskDescriptor {
     /// Index references to other tasks in the same decomposition
     /// that must complete before this one starts. Must form a DAG
     /// (no cycles, no orphan refs); validated by
-    /// [`crate::task_graph::validate`] at decomposition emit time.
+    /// [`fn@crate::task_graph::validate`] at decomposition emit time.
     #[serde(default)]
     pub depends_on: Vec<u32>,
     /// What kind of work this is. Influences vendor routing via
@@ -398,7 +398,7 @@ pub enum MissionEventKind {
     ///   * `Manual` — explicit pin set passed in (the legacy
     ///     [`crate::memory::attach_to_worktree`] path); `mmr_lambda`
     ///     is always `None`.
-    ///   * `Retrieval` — driven by [`crate::memory::composer::RetrievalBrief`]
+    ///   * `Retrieval` — driven by [`crate::memory::RetrievalBrief`]
     ///     through [`crate::memory::MemoryKernel::compose_retrieval`].
     ///     `mmr_lambda` is `Some(λ)` **iff MMR re-rank actually ran**
     ///     (i.e. at least one candidate had a stored embedding —

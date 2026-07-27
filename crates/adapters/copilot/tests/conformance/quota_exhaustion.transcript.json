@@ -1,0 +1,7 @@
+{
+  "lines": [
+    { "stream": "stdout", "text": "copilot: working in /Users/alice/src/demo-app" },
+    { "stream": "stderr", "text": "copilot: HTTP 429 too many requests" }
+  ],
+  "finalize": "Failed:1"
+}

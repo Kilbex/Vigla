@@ -91,12 +91,50 @@ jobs:
           fallback: none
 
       - name: Verify retained Rust dependency licenses
+        # The report is keyed to a Cargo.lock hash, so every lockfile change —
+        # including every Dependabot bump — invalidates it. Failing with a diff
+        # tells a contributor nothing they can act on, so print the exact
+        # regeneration sequence and the maintainer workflow that runs it.
         run: |
-          cargo about generate --workspace --all-features --locked --fail \
-            --format json \
-            --output-file "$RUNNER_TEMP/vigla-rust-licenses.json"
-          node scripts/generate-license-notices.mjs \
-            --check-rust-report "$RUNNER_TEMP/vigla-rust-licenses.json"
+          set -uo pipefail
+          # Separate the two failure modes: cargo-about refusing to generate
+          # (a license `deny.toml` would reject) is a different problem from a
+          # generated report that no longer matches the committed one, and
+          # regenerating cannot fix the first.
+          if ! cargo about generate --workspace --all-features --locked --fail \
+               --format json \
+               --output-file "$RUNNER_TEMP/vigla-rust-licenses.json"; then
+            cat >&2 <<'EOF'
+
+          cargo-about could not generate a report at all. This is a license
+          policy failure, not stale generated output: a dependency's license is
+          unaccepted or unresolvable. Read the error above, then fix the
+          dependency or update `about.toml` — regenerating will not help, and
+          the "Regenerate dependency notices" workflow will fail the same way.
+          EOF
+            exit 1
+          fi
+          if node scripts/generate-license-notices.mjs \
+               --check-rust-report "$RUNNER_TEMP/vigla-rust-licenses.json"; then
+            exit 0
+          fi
+          cat >&2 <<'EOF'
+
+          The Rust dependency license report no longer matches Cargo.lock.
+          Regenerate it locally with the cargo-about version pinned above:
+
+            cargo install --locked --features cli cargo-about --version 0.9.1
+            cargo about generate --workspace --all-features --locked --fail \
+              --format json --output-file /tmp/vigla-rust-licenses.json
+            node scripts/generate-license-notices.mjs \
+              --write-rust-report /tmp/vigla-rust-licenses.json
+            pnpm -C app licenses:write
+
+          On a Dependabot branch you cannot push from, ask a maintainer to run
+          the "Regenerate dependency notices" workflow with this branch name:
+          https://github.com/Kilbex/Vigla/actions/workflows/regenerate-notices.yml
+          EOF
+          exit 1
 
       - name: Reproduce launch recovery receipt
         run: cargo xtask receipt
@@ -134,6 +172,35 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Verify generated license notices
+        # `pnpm build`, `build:webdemo` and `site:check` all run this check, so
+        # a stale report reddens the whole job three steps later behind an
+        # unrelated-looking build failure. Run it first and explain the fix.
+        run: |
+          set -uo pipefail
+          if pnpm -C app licenses:check; then
+            exit 0
+          fi
+          cat >&2 <<'EOF'
+
+          The generated license notices no longer match the locked dependency
+          graphs. After a Cargo.lock change, regenerate with the cargo-about
+          version pinned in the Rust job:
+
+            cargo install --locked --features cli cargo-about --version 0.9.1
+            cargo about generate --workspace --all-features --locked --fail \
+              --format json --output-file /tmp/vigla-rust-licenses.json
+            node scripts/generate-license-notices.mjs \
+              --write-rust-report /tmp/vigla-rust-licenses.json
+            pnpm -C app licenses:write
+
+          After a JavaScript dependency change, `pnpm -C app licenses:write` is
+          enough. On a Dependabot branch you cannot push from, ask a maintainer
+          to run the "Regenerate dependency notices" workflow with this branch:
+          https://github.com/Kilbex/Vigla/actions/workflows/regenerate-notices.yml
+          EOF
+          exit 1
 
       - name: Audit JavaScript dependencies
         run: pnpm audit --audit-level low
@@ -185,6 +252,24 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Verify generated license notices
+        # `e2e:site` builds the replay, which runs this check; failing here
+        # instead costs seconds and says what to do about it.
+        run: |
+          set -uo pipefail
+          if pnpm -C app licenses:check; then
+            exit 0
+          fi
+          cat >&2 <<'EOF'
+
+          The generated license notices no longer match the locked dependency
+          graphs, so the replay build cannot start. See the Frontend job for the
+          regeneration sequence, or ask a maintainer to run the "Regenerate
+          dependency notices" workflow with this branch:
+          https://github.com/Kilbex/Vigla/actions/workflows/regenerate-notices.yml
+          EOF
+          exit 1
+
       - name: Install browser engines
         run: pnpm -C app exec playwright install --with-deps chromium firefox webkit
 
@@ -200,7 +285,9 @@ jobs:
   portable-rust:
     name: Portable Rust (Linux)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # check + clippy + test on the pinned toolchain, then a second full
+    # check on the MSRV toolchain, which shares no build cache with it.
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -221,6 +308,54 @@ jobs:
 
       - name: Test portable crates
         run: cargo test --workspace --exclude vigla-host
+
+      - name: Prove the declared MSRV still compiles
+        # `rust-toolchain.toml` pins the compiler contributors and CI
+        # use; `Cargo.toml`'s `rust-version` is the *minimum* we promise
+        # downstream. Those are allowed to differ, which means the pin
+        # alone proves nothing about the minimum. Read the MSRV out of
+        # the manifest — never hardcode it here, or this becomes another
+        # copy to drift — and compile the portable crates on exactly
+        # that toolchain.
+        run: |
+          set -euo pipefail
+          msrv="$(sed -n 's/^rust-version = "\([0-9][0-9.]*\)"$/\1/p' Cargo.toml)"
+          if [ -z "$msrv" ]; then
+            echo "could not read rust-version from Cargo.toml" >&2
+            exit 1
+          fi
+          echo "declared MSRV: $msrv"
+          rustup toolchain install "$msrv" --profile minimal --no-self-update
+          cargo "+$msrv" check --workspace --all-targets --exclude vigla-host
+
+  rust-docs:
+    name: Rust docs
+    runs-on: ubuntu-latest
+    # A cold `cargo doc` compiles the whole dependency graph before it
+    # documents anything, so budget like the sibling Rust jobs rather
+    # than like a lint.
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+
+      - name: Document the portable workspace
+        # The event contract's doc comments ARE the spec
+        # (crates/event-schema/src/lib.rs), so a dead intra-doc link or
+        # an undocumented public item is a defect in the spec itself.
+        # `--document-private-items` matches how a contributor reads
+        # these crates locally — every crate is `publish = false`, so
+        # internal cross-references are legitimate and must resolve.
+        # vigla-host is excluded for the same reason as the job above:
+        # it is the macOS Tauri host and is not built on Linux.
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --workspace --exclude vigla-host --no-deps --document-private-items
 
   supply-chain:
     name: Supply chain

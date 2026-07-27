@@ -13,8 +13,9 @@ whole-mission rollback, cleanup, and retention.
   the rebase-first `try_rebase_then_ff` strategy, and the
   `parse_unmerged` porcelain-v2 conflict parser.
 - `revert.rs` — merged missions are undone with a Git revert commit on the
-  recorded target branch; staged missions can be reset to their earliest
-  pre-integration tag for recovery verification.
+  recorded target branch; staged missions can be reset to the recorded branch
+  point (falling back to the lowest-index pre-integration tag for missions
+  created before that ref existed) for recovery verification.
 - `retention.rs` — `RetentionPolicy` (50 missions OR 7 days),
   `compact_once` (one pass), and a repository-scoped due check scheduled
   when a mission opens that repository.
@@ -30,10 +31,17 @@ whole-mission rollback, cleanup, and retention.
 - `vigla/revert/{mid}/before/{target_ref}` — target branch immediately before
   final merge; the durable user-facing rollback anchor.
 - `vigla/revert/{mid}/merged/{target_ref}` — final mission merge commit.
+- `refs/vigla/base/{mid}` — branch point of the supervisor branch, recorded
+  once by `create_supervisor_branch` and deleted by `discard`. Deliberately a
+  plain ref, not a tag, so it never appears in `git tag`, `git branch`, or the
+  default push refspec.
 
 Only the intermediate `pre-merge` and `snap` families are compacted. Final
 `revert` anchors are durable because History continues to authorize Revert
-after mission worktrees and branches are gone.
+after mission worktrees and branches are gone. `discard` removes the base ref
+directly; compaction drops it only for a mission whose last pre-integration tag
+it just pruned, since a staged revert needs one of those tags to have anything
+to rewind.
 
 ## Reversibility envelope
 
@@ -47,7 +55,11 @@ Per roadmap §2:
    recorded target. Later commits remain intact; a checked-out target must be
    clean.
 4. The receipt-only staged rollback resets the supervisor branch to the
-   earliest pre-integration tag, proving all task integrations can be removed.
+   recorded branch point (`refs/vigla/base/{mid}`), falling back to the
+   lowest-index pre-integration tag for missions created before that ref
+   existed, proving all task integrations can be removed. The lowest index is
+   not by itself the branch point: indexes are handed out at `JoinSet` spawn
+   time while integration is serialised first-come by a mutex.
 5. Snapshot retention: 50 missions OR 7 days, whichever longer.
    A per-repository checkpoint allows at most one due pass per 24 hours.
 

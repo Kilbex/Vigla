@@ -1,0 +1,7 @@
+{
+  "lines": [
+    { "stream": "stdout", "text": "kiro: spec demo-app loaded from /Users/alice/src/demo-app" },
+    { "stream": "stderr", "text": "kiro: request rejected: quota exceeded for this workspace" }
+  ],
+  "finalize": "Failed:1"
+}

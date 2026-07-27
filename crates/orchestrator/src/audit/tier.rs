@@ -11,10 +11,15 @@ use specta::Type;
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "snake_case")]
 pub enum AuditTier {
+    /// Scope + security scoring only. Runs no subprocess at all.
     #[default]
-    Smoke, // cargo check + scope + security only
-    Standard, // smoke + tests for changed crates + lint
-    Deep,     // standard + full-workspace tests + regression
+    Smoke,
+    /// Smoke, plus the project's test runner and lint tools.
+    Standard,
+    /// Reserved for a heavier pass (full-workspace tests, regression).
+    /// `audit_submission` branches only on `tier != Smoke`, so today Deep
+    /// behaves exactly like Standard — do not document it as doing more.
+    Deep,
 }
 
 #[derive(Debug, Clone)]

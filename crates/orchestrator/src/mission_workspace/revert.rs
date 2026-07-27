@@ -2,8 +2,8 @@
 //!
 //! A merged mission is undone on its recorded target branch with a normal Git
 //! revert commit, preserving any later work. Before final merge, the same API
-//! falls back to rewinding the staged supervisor branch to its earliest
-//! pre-integration tag; this is the recovery-receipt path.
+//! falls back to rewinding the staged supervisor branch to its recorded branch
+//! point; this is the recovery-receipt path.
 
 use crate::mission_workspace::{MissionGitError, MissionWorkspace};
 use std::path::Path;
@@ -55,8 +55,9 @@ impl MissionWorkspace {
     ///
     /// Final-merge anchors take precedence and undo the mission on its target
     /// branch. If no final anchors exist, the mission has not been merged and
-    /// the staged supervisor branch is reset to its earliest pre-integration
-    /// tag. The repository audit log provides click-level idempotency.
+    /// the staged supervisor branch is reset to the branch point recorded at
+    /// branch creation. The repository audit log provides click-level
+    /// idempotency.
     pub async fn revert_mission(&self) -> Result<RevertOutcome, MissionGitError> {
         let final_prefix = format!("vigla/revert/{}/before/", self.mission_id());
         let raw = self
@@ -223,16 +224,33 @@ impl MissionWorkspace {
     }
 
     async fn revert_staged_integrations(&self) -> Result<RevertOutcome, MissionGitError> {
-        // `list_pre_merge_tags` is sorted newest-first, so the earliest
-        // integration's snapshot (the mission branch point) is `.last()`.
+        // A pre-merge tag only proves the mission integrated at least once; it
+        // does not identify the branch point. Integration indexes are assigned
+        // when a task is spawned while integration itself is serialised
+        // first-come, so the lowest-index snapshot can already contain a peer's
+        // work. The branch-point ref, written once by
+        // `create_supervisor_branch`, is authoritative. Missions branched
+        // before that ref existed fall back to the lowest-index snapshot,
+        // which is the branch point whenever integrations ran in index order.
         let tags = self.list_pre_merge_tags().await?;
-        let earliest = tags.last().ok_or_else(|| {
+        let lowest_index_tag = tags.last().ok_or_else(|| {
             MissionGitError::Refused(format!(
                 "no pre-merge tags found for mission {}",
                 self.mission_id()
             ))
         })?;
-        let pre_merge_tag = earliest.clone();
+        let lowest_index_sha = self
+            .run_git(&[
+                "rev-parse",
+                &format!("refs/tags/{lowest_index_tag}^{{commit}}"),
+            ])
+            .await?;
+        let (pre_merge_tag, target_sha) = match self.base_point_sha().await? {
+            // When the two agree, report the snapshot tag so the revert receipt
+            // still names the anchor the `Integrated` event published.
+            Some(base_sha) if base_sha != lowest_index_sha => (self.base_ref(), base_sha),
+            _ => (lowest_index_tag.clone(), lowest_index_sha),
+        };
 
         let supervisor_branch = self.supervisor_branch();
         // Confirm supervisor branch exists.
@@ -243,13 +261,6 @@ impl MissionWorkspace {
                     "supervisor branch {supervisor_branch:?} not found"
                 ))
             })?;
-
-        // Resolve target SHA.
-        let target_sha = self
-            .run_git(&["rev-parse", &format!("refs/tags/{pre_merge_tag}")])
-            .await?
-            .trim()
-            .to_string();
 
         // Reset the supervisor branch to the tag. Use
         // update-ref instead of `reset --hard` so we don't need a
@@ -390,6 +401,92 @@ mod tests {
             .trim()
             .to_string();
         assert_eq!(after, baseline);
+    }
+
+    #[tokio::test]
+    async fn revert_full_mission_uses_the_first_integration_not_the_lowest_index() {
+        // Integration indexes are handed out at JoinSet spawn time while the
+        // integration phase itself is serialised first-come by a mutex, so the
+        // task holding index 1 can snapshot the branch point and index 0 can
+        // snapshot the state after it. A full revert must return to the
+        // recorded branch point, not to whichever snapshot carries the lowest
+        // index.
+        let (w, _td) = bootstrap_workspace_with_supervisor_branch().await;
+        let sup_wt = w.supervisor_worktree_path();
+
+        let baseline = w
+            .run_git(&["rev-parse", &w.supervisor_branch()])
+            .await
+            .unwrap()
+            .trim()
+            .to_string();
+
+        // Index 1 wins the integration lock first: its snapshot is the branch
+        // point.
+        w.create_pre_merge_tag(1).await.unwrap();
+        tokio::fs::write(sup_wt.join("t1.txt"), "1").await.unwrap();
+        w.run_git_in(&sup_wt, &["add", "t1.txt"]).await.unwrap();
+        w.run_git_in(&sup_wt, &["commit", "-m", "integrate 1"])
+            .await
+            .unwrap();
+
+        // Index 0 integrates second, so its snapshot already contains task 1.
+        w.create_pre_merge_tag(0).await.unwrap();
+        tokio::fs::write(sup_wt.join("t0.txt"), "0").await.unwrap();
+        w.run_git_in(&sup_wt, &["add", "t0.txt"]).await.unwrap();
+        w.run_git_in(&sup_wt, &["commit", "-m", "integrate 0"])
+            .await
+            .unwrap();
+
+        let outcome = w.revert_mission().await.unwrap();
+        assert_eq!(
+            outcome.restored_sha, baseline,
+            "full-mission revert must reset to the mission branch point, not the /0 snapshot"
+        );
+
+        let after = w
+            .run_git(&["rev-parse", &w.supervisor_branch()])
+            .await
+            .unwrap()
+            .trim()
+            .to_string();
+        assert_eq!(after, baseline);
+        assert!(
+            !sup_wt.join("t1.txt").exists(),
+            "the out-of-order first integration must be undone too"
+        );
+    }
+
+    #[tokio::test]
+    async fn revert_falls_back_to_the_lowest_index_tag_without_a_branch_point_ref() {
+        // Missions branched before the branch-point ref existed must still
+        // revert: their lowest-index snapshot is the branch point as long as
+        // the integrations ran in index order.
+        let (w, _td) = bootstrap_workspace_with_supervisor_branch().await;
+        w.run_git(&["update-ref", "-d", &w.base_ref()])
+            .await
+            .unwrap();
+        let sup_wt = w.supervisor_worktree_path();
+
+        let baseline = w
+            .run_git(&["rev-parse", &w.supervisor_branch()])
+            .await
+            .unwrap()
+            .trim()
+            .to_string();
+
+        w.create_pre_merge_tag(0).await.unwrap();
+        tokio::fs::write(sup_wt.join("legacy.txt"), "x")
+            .await
+            .unwrap();
+        w.run_git_in(&sup_wt, &["add", "legacy.txt"]).await.unwrap();
+        w.run_git_in(&sup_wt, &["commit", "-m", "integrate"])
+            .await
+            .unwrap();
+
+        let outcome = w.revert_mission().await.unwrap();
+        assert_eq!(outcome.restored_sha, baseline);
+        assert!(outcome.pre_merge_tag.ends_with("/0"));
     }
 
     #[tokio::test]

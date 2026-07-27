@@ -50,13 +50,20 @@ pub enum ReworkKind {
     /// live DAG after the current task.
     Split { sub_tasks: Vec<TaskDescriptor> },
 
-    /// Re-run with a constrained scope_paths overlay. Applies to the
-    /// next pass only. Empty means "no constraint" (Revise-equivalent).
+    /// Re-run with a constrained scope_paths overlay. It takes effect on the
+    /// next pass and stays in force for every later pass of the same task:
+    /// a scope the supervisor judged too wide must not silently re-widen
+    /// because the following pass happened to be a plain `Revise`. Only a
+    /// later `Narrow` replaces it, and an empty `reduced_scope` is how the
+    /// supervisor releases it (the pass falls back to the mission scope).
     /// The dispatcher enforces this through the file ACL before integration.
     Narrow { reduced_scope: Vec<PathBuf> },
 
-    /// Re-run with a fully replaced brief. Used in place of
-    /// `task.title` for the next pass.
+    /// Re-run with a fully replaced brief. Used in place of `task.title` from
+    /// the next pass onward, and — like `Narrow` — for every later pass of the
+    /// task: the supervisor retracted the original brief, so reverting to it on
+    /// the following `Revise` would resurrect the work it just replaced. Only a
+    /// later `Rebrief` replaces it.
     Rebrief { new_brief: String },
 
     /// Supervisor declares the task cannot be automated to passing. The

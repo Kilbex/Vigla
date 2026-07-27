@@ -91,17 +91,25 @@ The vocabulary is small and precise — *mission*, *worker*, *envelope*,
 ## Vendor support
 
 Real workers are driven from the in-app Deploy panel; the mock harness
-covers demos and CI. Integration tests are the authoritative
-verification path for the fully gated vendors.
+covers demos and CI. Two independent tiers of evidence back a vendor, and
+they are not interchangeable:
 
-| Vendor | Binary | Role | Verification |
-|---|---|---|---|
-| Claude Code | `claude` | supervisor + worker; session retry / continue | `real_claude_gate.rs`, `supervisor_live.rs` |
-| Codex CLI | `codex` | worker | `real_codex_run.rs`, `supervisor_live.rs` |
-| Antigravity | `agy` | profile-backed worker | `real_antigravity_run.rs` |
-| Gemini CLI | `gemini` | legacy / enterprise worker | `supervisor_live.rs` |
-| Kiro | `kiro-cli` | profile-backed worker | end-to-end verification pending |
-| GitHub Copilot | `copilot` | profile-backed worker | end-to-end verification pending |
+- **Adapter goldens (CI).** Committed transcript-and-golden pairs run through
+  the shared `vigla-adapter-conformance` harness on every pull request. They
+  pin the byte-to-event contract. They prove nothing about the vendor binary.
+- **Real-CLI gate (local, opt-in).** An `#[ignore]`d integration test that
+  spawns the actual CLI against a failing fixture repository and asserts the
+  agent fixed the defect. It needs a working binary and credentials, so **no
+  CI workflow runs it** — a maintainer runs it by hand.
+
+| Vendor | Binary | Role | Real-CLI gate (local, opt-in) | Adapter goldens (CI) |
+|---|---|---|---|---|
+| Claude Code | `claude` | supervisor + worker; session retry / continue | `real_claude_gate.rs`, `supervisor_live.rs` | 6 conformance cases + `from_fixture.rs` |
+| Codex CLI | `codex` | worker | `real_codex_run.rs`, `supervisor_live.rs` | 4 conformance cases + `from_fixture.rs` |
+| Antigravity | `agy` | profile-backed worker | `real_antigravity_run.rs` | 4 conformance cases |
+| Gemini CLI | `gemini` | legacy / enterprise worker | `supervisor_live.rs` | 4 conformance cases + `from_fixture.rs` |
+| Kiro | `kiro-cli` | profile-backed worker | none yet | 4 conformance cases |
+| GitHub Copilot | `copilot` | profile-backed worker | none yet | 4 conformance cases |
 
 Google ended consumer **Login with Google** access for Gemini CLI on
 2026-06-18. Vigla retains the adapter for existing enterprise and legacy
@@ -109,23 +117,33 @@ configurations, but Gemini CLI is no longer a primary launch path. Google
 directs affected consumer users to Antigravity in its
 [official deprecation notice](https://developers.google.com/gemini-code-assist/docs/deprecations/code-assist-individuals).
 
-Mission supervision is Claude-backed today; non-Claude supervisor
-options should be treated as experimental until their end-to-end tests
-land. Vigla does not pin vendor CLI versions — the launch path
-verifies each configured binary, and the (`#[ignore]`-gated) real-CLI
-integration tests track adapter compatibility:
+**Mission supervision is Claude-only today.** The Supervisor dropdown offers
+exactly two values — *Claude* (spawns the real `claude` CLI) and *Mock (demo)*
+(the scripted runtime, no vendor process) — and `host_services` rejects any
+other `supervisor_model` with `UnsupportedSupervisorModel`. There is no
+experimental non-Claude supervisor to opt into; a second *real* supervisor is
+[roadmap work](https://github.com/Kilbex/Vigla/blob/main/ROADMAP.md). Vigla does not pin vendor CLI versions — the
+launch path verifies each configured binary, and the real-CLI gates track
+adapter compatibility:
 
 ```sh
 cargo test -p vigla-orchestrator --test real_claude_gate -- --ignored --nocapture
 cargo test -p vigla-orchestrator --test real_codex_run   -- --ignored --nocapture
 cargo test -p vigla-orchestrator --test real_antigravity_run -- --ignored --nocapture --test-threads=1
-cargo test -p vigla-orchestrator --test supervisor_live  -- --ignored --nocapture
+VIGLA_LIVE=1 cargo test -p vigla-orchestrator --test supervisor_live -- --ignored --nocapture
 ```
 
-The Claude, Codex, and supervisor gates use `tests/samples/sandbox/`, a
-workspace-excluded crate with a deliberately wrong `multiply` function. The
-Antigravity gate creates the same kind of isolated failing Rust fixture in a
-temporary repository. Each gate asserts that the agent fixed the defect.
+`VIGLA_LIVE=1` is not optional on the last line: without it every test in
+`supervisor_live.rs` prints a skip line and passes, so the gate looks green
+without having run.
+
+The Claude and Codex gates use `tests/samples/sandbox/`, a workspace-excluded
+crate with a deliberately wrong `multiply` function. The Antigravity gate
+creates the same kind of isolated failing Rust fixture in a temporary
+repository. Each of those three asserts that the agent fixed the defect. The
+supervisor gate builds its own throwaway repositories instead — a wrong `add`,
+a broken test, and a docs task — and asserts that a real `claude` supervisor
+drives each mission to a completed, audited verdict.
 
 ## Requirements
 
@@ -138,8 +156,12 @@ temporary repository. Each gate asserts that the agent fixed the defect.
 
 ## Build a local DMG
 
-Vigla does not publish maintainer-built binaries. On a Mac, clone the source and
-run one command:
+Vigla publishes no maintainer-built binaries today: there is no signing
+identity, notarization credential, or update channel to trust, and the only
+supported artifact is the one your machine produces. (A Mac App Store release
+would replace that trust model with Apple's; whether to make that trade is
+[undecided and under investigation](https://github.com/Kilbex/Vigla/blob/main/docs/roadmap/mac-app-store.md).) On a
+Mac, clone the source and run one command:
 
 ```sh
 ./scripts/build.sh
@@ -162,9 +184,9 @@ cache; if that download is unavailable, retrieval falls back to local BM25.
 
 Design trade-offs in the current build, not bugs:
 
-- **Real supervisor execution is Claude-gated.** The production
-  mission-supervisor path and its end-to-end verification are
-  Claude-backed today.
+- **Real supervisor execution is Claude-only.** `supervisor_model` accepts
+  `claude` (the real CLI) or `auto` (the scripted mock); everything else is
+  rejected. Cross-vendor applies to workers, not to the supervisor.
 - **Memory retrieval is local and best-effort.** Alias-expanded BM25
   with optional embedding / hybrid re-ranking; degrades to lexical
   retrieval instead of blocking workers.

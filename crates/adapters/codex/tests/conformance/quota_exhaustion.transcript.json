@@ -1,0 +1,8 @@
+{
+  "lines": [
+    { "stream": "stdout", "text": "{\"type\":\"thread.started\",\"thread_id\":\"fixture-codex-thread-001\"}" },
+    { "stream": "stdout", "text": "{\"type\":\"turn.started\"}" },
+    { "stream": "stdout", "text": "{\"type\":\"turn.completed\",\"status\":\"error\",\"error\":{\"code\":\"usage_limit_exceeded\",\"message\":\"usage limit exceeded\"},\"usage\":{\"input_tokens\":32,\"output_tokens\":0}}" }
+  ],
+  "finalize": "Failed:1"
+}

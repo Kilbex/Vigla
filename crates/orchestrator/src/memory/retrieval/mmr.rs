@@ -1,7 +1,7 @@
 //! Maximal Marginal Relevance diversification (V1.3 — Phase 3).
 //!
 //! Standard MMR re-ranker for the retrieval-driven composer
-//! ([`crate::memory::composer`]). Sits *after* the V1.2 hybrid
+//! (`crate::memory::composer`). Sits *after* the V1.2 hybrid
 //! scorer ([`crate::memory::retrieval::hybrid`]) — hybrid picks
 //! the top-N relevance-ranked candidates; MMR re-ranks them to
 //! reduce redundancy in the final bundle.
@@ -51,8 +51,8 @@
 use crate::memory::retrieval::hybrid::cosine_normalized;
 
 /// Inputs to one MMR re-rank pass. Kept as a borrowed view so the
-/// caller can build it cheaply from a Vec<ScoredNote> + a parallel
-/// Vec<Vec<f32>> without cloning either.
+/// caller can build it cheaply from a `Vec<ScoredNote>` + a parallel
+/// `Vec<Vec<f32>>` without cloning either.
 #[derive(Debug)]
 pub struct MmrCandidate<'a> {
     pub note_id: &'a str,

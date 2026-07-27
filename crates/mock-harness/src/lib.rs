@@ -52,18 +52,28 @@ pub enum Script {
 }
 
 impl Script {
+    /// Every built-in script, in presentation order. `from_name`, the
+    /// [`ScriptError::UnknownScript`] listing, and `mock-harness --help`
+    /// all read this one array, so they cannot disagree about what the
+    /// harness accepts. A variant missing from here is unreachable from
+    /// the CLI rather than silently absent from one of three lists.
+    pub const ALL: &'static [Self] = &[
+        Self::ClaudeHappy,
+        Self::CodexBlocked,
+        Self::GeminiHappy,
+        Self::GeminiBlocked,
+        Self::GeminiFailed,
+        Self::GeminiTerminal,
+        Self::ClaudeQuotaExhausted,
+    ];
+
     /// Parse the `--script` argv value.
     pub fn from_name(name: &str) -> Result<Self, ScriptError> {
-        match name {
-            "claude_happy" => Ok(Self::ClaudeHappy),
-            "codex_blocked" => Ok(Self::CodexBlocked),
-            "gemini_happy" => Ok(Self::GeminiHappy),
-            "gemini_blocked" => Ok(Self::GeminiBlocked),
-            "gemini_failed" => Ok(Self::GeminiFailed),
-            "gemini_terminal" => Ok(Self::GeminiTerminal),
-            "claude_quota_exhausted" => Ok(Self::ClaudeQuotaExhausted),
-            other => Err(ScriptError::UnknownScript(other.to_owned())),
-        }
+        Self::ALL
+            .iter()
+            .copied()
+            .find(|script| script.name() == name)
+            .ok_or_else(|| ScriptError::UnknownScript(name.to_owned()))
     }
 
     /// The vendor stamped on the worker info this script represents.
@@ -90,6 +100,19 @@ impl Script {
             Self::ClaudeQuotaExhausted => "claude_quota_exhausted",
         }
     }
+
+    /// One-line trajectory summary, rendered by `mock-harness --help`.
+    pub fn description(&self) -> &'static str {
+        match self {
+            Self::ClaudeHappy => "planning → executing → reviewing → done",
+            Self::CodexBlocked => "executing → blocked → executing → done",
+            Self::GeminiHappy => "planning → executing → reviewing → done (gemini-flavored)",
+            Self::GeminiBlocked => "executing → blocked → executing → done (gemini-flavored)",
+            Self::GeminiFailed => "executing → failed (retryable: true)",
+            Self::GeminiTerminal => "executing → failed (retryable: false)",
+            Self::ClaudeQuotaExhausted => "executing → quota-exhausted (Claude rate_limit_event)",
+        }
+    }
 }
 
 /// Errors returned by the public surface.
@@ -101,10 +124,16 @@ pub enum ScriptError {
 impl fmt::Display for ScriptError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::UnknownScript(name) => write!(
-                f,
-                "unknown script {name:?} (expected: claude_happy, codex_blocked, gemini_happy, gemini_blocked, gemini_failed, gemini_terminal, claude_quota_exhausted)"
-            ),
+            Self::UnknownScript(name) => {
+                write!(f, "unknown script {name:?} (expected: ")?;
+                for (i, script) in Script::ALL.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", script.name())?;
+                }
+                write!(f, ")")
+            }
         }
     }
 }
@@ -141,5 +170,29 @@ pub fn build_script(script: Script, opts: &EmitOpts) -> Vec<TimedEvent> {
         Script::GeminiFailed => scripts::gemini_failed(opts),
         Script::GeminiTerminal => scripts::gemini_terminal(opts),
         Script::ClaudeQuotaExhausted => scripts::claude_quota_exhausted(opts),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_listed_script_parses_back_from_its_own_name() {
+        for script in Script::ALL {
+            assert_eq!(Script::from_name(script.name()).unwrap(), *script);
+        }
+    }
+
+    #[test]
+    fn the_unknown_script_error_names_every_listed_script() {
+        let message = ScriptError::UnknownScript("nope".into()).to_string();
+        for script in Script::ALL {
+            assert!(
+                message.contains(script.name()),
+                "{message} omits {}",
+                script.name()
+            );
+        }
     }
 }
