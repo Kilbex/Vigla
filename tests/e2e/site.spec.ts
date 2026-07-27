@@ -54,7 +54,7 @@ test.describe("GitHub Pages launch surface", () => {
     await expect(page.getByRole("heading", { level: 1 })).toContainText(
       "Supervise the merge",
     );
-    await expect(page.getByText("27/27 bounded recovery receipt")).toBeVisible();
+    await expect(page.getByText("27 / 27 seeded paths bounded")).toBeVisible();
 
     const heroImage = page.locator(".hero-visual img");
     await expect(heroImage).toBeVisible();

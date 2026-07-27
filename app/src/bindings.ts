@@ -393,13 +393,43 @@ forbid_new_security_flags?: boolean | null;
 summary?: string | null }
 export type AppSettingsDto = { version: string; db_path: string; configured_repo_root: string | null; mock_harness_path: string; mock_harness_present: boolean; l1_quota_mock_enabled: boolean; claude_present: boolean; codex_present: boolean; gemini_present: boolean; antigravity_present: boolean; kiro_present: boolean; copilot_present: boolean; cli_auth: CliAuthStatusDto[] }
 export type ArbiterDecision = ({ kind: "accept" } & AcceptPayload) | { kind: "extend"; rework_kind: ReworkKind; attempts_remaining: number } | { kind: "scrub"; reason: ScrubReason; retained_artifacts: string[]; partial_audit: AuditReport | null } | { kind: "escalate"; bound: AuthorityBound; evidence: EscalationEvidence; suggested_user_action: SuggestedUserAction }
-export type Artifact = { kind: ArtifactKind; 
+/**
+ * One thing a worker produced, referenced from a [`Completion`].
+ */
+export type Artifact = { 
+/**
+ * How to interpret [`Artifact::artifact_ref`].
+ */
+kind: ArtifactKind; 
 /**
  * Renamed because `ref` is a Rust keyword; the wire name stays
  * `ref`.
  */
-ref: string; label?: string | null }
-export type ArtifactKind = "file" | "diff" | "report" | "url"
+ref: string; 
+/**
+ * Operator-facing label for the artifact.
+ */
+label?: string | null }
+/**
+ * How to interpret an [`Artifact`]'s `ref`.
+ */
+export type ArtifactKind = 
+/**
+ * A path in the worker's worktree.
+ */
+"file" | 
+/**
+ * A unified diff.
+ */
+"diff" | 
+/**
+ * A generated report or summary document.
+ */
+"report" | 
+/**
+ * An external URL.
+ */
+"url"
 export type AuditReport = { 
 /**
  * Composite score in [0.0, 1.0]. Computed by `composite::blend`.
@@ -446,7 +476,23 @@ export type BoundFit = { fit: BoundFitKind; note?: string }
 export type BoundFitKind = "within" | "near_limit" | "exceeds"
 export type CliAuthState = "ready" | "missing_cli" | "not_logged_in" | "unknown"
 export type CliAuthStatusDto = { vendor: string; display_name: string; binary: string; binary_present: boolean; state: CliAuthState; detail: string; login_command: string; docs_url: string }
-export type Completion = { summary: string; artifacts?: Artifact[] | null; duration_ms?: number | null }
+/**
+ * Payload of an [`EventKind::Completion`] — the terminal success
+ * record for a task.
+ */
+export type Completion = { 
+/**
+ * The worker's own account of what it did.
+ */
+summary: string; 
+/**
+ * Artifacts the worker points the reviewer at.
+ */
+artifacts?: Artifact[] | null; 
+/**
+ * Wall-clock duration of the task, in milliseconds.
+ */
+duration_ms?: number | null }
 /**
  * Mission-level "is this done?" verdict assembled after the per-task loop.
  */
@@ -493,12 +539,58 @@ recommendation: ArbiterDecision }
  * it from the surrounding event stream.
  */
 export type ComposeSource = "manual" | "retrieval"
-export type Cost = { input_tokens: number; output_tokens: number; usd: number; cache_read_tokens?: number | null; cache_write_tokens?: number | null; model?: string | null }
+/**
+ * Payload of an [`EventKind::Cost`]. Values are whatever the vendor
+ * CLI reported for the turn; Vigla never calls a billing API to
+ * reconcile them.
+ */
+export type Cost = { 
+/**
+ * Prompt tokens consumed this turn.
+ */
+input_tokens: number; 
+/**
+ * Completion tokens produced this turn.
+ */
+output_tokens: number; 
+/**
+ * Vendor-reported spend for the turn, in US dollars.
+ */
+usd: number; 
+/**
+ * Tokens served from the vendor's prompt cache, when reported.
+ */
+cache_read_tokens?: number | null; 
+/**
+ * Tokens written into the vendor's prompt cache, when reported.
+ */
+cache_write_tokens?: number | null; 
+/**
+ * Model the vendor billed, when it names one. May differ from
+ * [`WorkerInfo::model`] if the CLI downgraded mid-run.
+ */
+model?: string | null }
 /**
  * Side effects Vigla can surface before/while running a vendor CLI.
  */
 export type DeclaredSideEffectKind = "package_install" | "paid_api_call" | "external_mutation" | "network_egress"
-export type Dependency = { waiting_on: string[]; reason: string; since?: string | null }
+/**
+ * Payload of an [`EventKind::Dependency`] — why a worker is in
+ * [`WorkerState::Blocked`].
+ */
+export type Dependency = { 
+/**
+ * Task ids ([`TaskInfo::id`]) that must land first.
+ */
+waiting_on: string[]; 
+/**
+ * Human-readable explanation shown in the worker drawer.
+ */
+reason: string; 
+/**
+ * RFC 3339 timestamp the wait began, when the adapter knows it.
+ */
+since?: string | null }
 /**
  * The supervisor's self-assessment of the proposed plan against
  * each of the four authority bounds. Carried on `PlanProposed`
@@ -527,13 +619,119 @@ payload_json: string | null }
  * outer object so the wire format is exactly the envelope shown in
  * the crate-level docs.
  */
-export type Event = ({ type: "state_change"; payload: StateChange } | { type: "log"; payload: Log } | { type: "progress"; payload: Progress } | { type: "file_activity"; payload: FileActivity } | { type: "test_result"; payload: TestResult } | { type: "cost"; payload: Cost } | { type: "dependency"; payload: Dependency } | { type: "completion"; payload: Completion } | { type: "failure"; payload: Failure }) & { schema_version: string; worker_id: string; task_id: string | null; seq: number; ts: string }
+export type Event = 
+/**
+ * The payload, flattened into `type` + `payload` on the wire.
+ */
+(
+/**
+ * Worker lifecycle transition. Wire name `state_change`.
+ */
+{ type: "state_change"; payload: StateChange } | 
+/**
+ * One line of adapter-normalized CLI output. Wire name `log`.
+ */
+{ type: "log"; payload: Log } | 
+/**
+ * Self-reported progress toward the current task. Wire name
+ * `progress`.
+ */
+{ type: "progress"; payload: Progress } | 
+/**
+ * A file the worker created, changed, moved, or read. Wire name
+ * `file_activity`.
+ */
+{ type: "file_activity"; payload: FileActivity } | 
+/**
+ * Outcome of a test run the worker executed. Wire name
+ * `test_result`.
+ */
+{ type: "test_result"; payload: TestResult } | 
+/**
+ * Token and spend accounting for the turn. Wire name `cost`.
+ */
+{ type: "cost"; payload: Cost } | 
+/**
+ * The worker is blocked on other tasks. Wire name `dependency`.
+ */
+{ type: "dependency"; payload: Dependency } | 
+/**
+ * Terminal success payload. Wire name `completion`.
+ */
+{ type: "completion"; payload: Completion } | 
+/**
+ * Terminal failure payload. Wire name `failure`.
+ */
+{ type: "failure"; payload: Failure }) & { 
+/**
+ * Value of [`SCHEMA_VERSION`] at the time the producer emitted
+ * this event.
+ */
+schema_version: string; 
+/**
+ * Id of the emitting worker ([`WorkerInfo::id`]).
+ */
+worker_id: string; 
+/**
+ * Task the worker was executing, when the event is attributable
+ * to one ([`TaskInfo::id`]).
+ */
+task_id: string | null; 
+/**
+ * Adapter-owned counter, monotonic per worker. It is the
+ * adapter's own numbering and need not match anything the vendor
+ * CLI emits; `(worker_id, seq)` is the event store's primary key.
+ */
+seq: number; 
+/**
+ * RFC 3339 timestamp, millisecond precision, UTC.
+ */
+ts: string }
 /**
  * Discriminated payload union. Adjacently tagged: `{"type": "...",
  * "payload": {...}}`. `rename_all = "snake_case"` defines the
  * canonical wire names.
  */
-export type EventKind = { type: "state_change"; payload: StateChange } | { type: "log"; payload: Log } | { type: "progress"; payload: Progress } | { type: "file_activity"; payload: FileActivity } | { type: "test_result"; payload: TestResult } | { type: "cost"; payload: Cost } | { type: "dependency"; payload: Dependency } | { type: "completion"; payload: Completion } | { type: "failure"; payload: Failure }
+export type EventKind = 
+/**
+ * Worker lifecycle transition. Wire name `state_change`.
+ */
+{ type: "state_change"; payload: StateChange } | 
+/**
+ * One line of adapter-normalized CLI output. Wire name `log`.
+ */
+{ type: "log"; payload: Log } | 
+/**
+ * Self-reported progress toward the current task. Wire name
+ * `progress`.
+ */
+{ type: "progress"; payload: Progress } | 
+/**
+ * A file the worker created, changed, moved, or read. Wire name
+ * `file_activity`.
+ */
+{ type: "file_activity"; payload: FileActivity } | 
+/**
+ * Outcome of a test run the worker executed. Wire name
+ * `test_result`.
+ */
+{ type: "test_result"; payload: TestResult } | 
+/**
+ * Token and spend accounting for the turn. Wire name `cost`.
+ */
+{ type: "cost"; payload: Cost } | 
+/**
+ * The worker is blocked on other tasks. Wire name `dependency`.
+ */
+{ type: "dependency"; payload: Dependency } | 
+/**
+ * Terminal success payload. Wire name `completion`.
+ */
+{ type: "completion"; payload: Completion } | 
+/**
+ * Terminal failure payload. Wire name `failure`.
+ */
+{ type: "failure"; payload: Failure }
 /**
  * Verdict for a single mission event. The frontend ingest layer
  * consults this verdict via a Tauri command (Task 11) and routes
@@ -547,10 +745,124 @@ export type EventKind = { type: "state_change"; payload: StateChange } | { type:
  * `kind` + `severity`.
  */
 export type EventVisibility = { kind: "internal" } | { kind: "power_user_only" } | { kind: "inbox"; inbox_kind: InboxKind; severity: Severity }
-export type Failure = { error: string; retryable: boolean; suggestion?: string | null; exit_code?: number | null; category?: FailureCategory | null }
-export type FailureCategory = "timeout" | "auth" | "network" | "rate_limit" | "tool_error" | "task_logic" | "internal" | "unknown"
-export type FileActivity = { path: string; op: FileOp; from_path?: string | null; lines_added?: number | null; lines_removed?: number | null; bytes?: number | null }
-export type FileOp = "created" | "modified" | "deleted" | "renamed" | "read"
+/**
+ * Payload of an [`EventKind::Failure`] — the terminal failure record
+ * for a task.
+ */
+export type Failure = { 
+/**
+ * Failure message, adapter-normalized.
+ */
+error: string; 
+/**
+ * Whether re-running the same task could plausibly succeed.
+ */
+retryable: boolean; 
+/**
+ * Suggested operator action, when the adapter can offer one.
+ */
+suggestion?: string | null; 
+/**
+ * Child process exit status, when the process exited rather than
+ * being killed.
+ */
+exit_code?: number | null; 
+/**
+ * Classification used by the recovery engine.
+ */
+category?: FailureCategory | null }
+/**
+ * Coarse cause of a [`Failure`], used by the recovery engine to
+ * decide whether to pause, retry, or escalate.
+ */
+export type FailureCategory = 
+/**
+ * The worker or a tool it invoked ran out of time.
+ */
+"timeout" | 
+/**
+ * The vendor CLI is not signed in, or its credential expired.
+ */
+"auth" | 
+/**
+ * A network call failed for a reason other than rate limiting.
+ */
+"network" | 
+/**
+ * The vendor throttled or exhausted the account's quota window.
+ */
+"rate_limit" | 
+/**
+ * A tool the worker invoked returned an error.
+ */
+"tool_error" | 
+/**
+ * The task itself was impossible or contradictory as specified.
+ */
+"task_logic" | 
+/**
+ * A fault inside Vigla rather than the vendor.
+ */
+"internal" | 
+/**
+ * The adapter could not classify the failure.
+ */
+"unknown"
+/**
+ * Payload of an [`EventKind::FileActivity`]. Paths are relative to
+ * the worker's worktree ([`WorkerInfo::cwd`]).
+ */
+export type FileActivity = { 
+/**
+ * Path the operation applied to; the destination for a rename.
+ */
+path: string; 
+/**
+ * What happened to the file.
+ */
+op: FileOp; 
+/**
+ * Original path, set only for [`FileOp::Renamed`].
+ */
+from_path?: string | null; 
+/**
+ * Lines added, when the adapter can extract a diffstat.
+ */
+lines_added?: number | null; 
+/**
+ * Lines removed, when the adapter can extract a diffstat.
+ */
+lines_removed?: number | null; 
+/**
+ * Resulting file size in bytes, when the vendor reports it.
+ */
+bytes?: number | null }
+/**
+ * What a worker did to a file.
+ */
+export type FileOp = 
+/**
+ * The file did not exist before this operation.
+ */
+"created" | 
+/**
+ * An existing file's contents changed.
+ */
+"modified" | 
+/**
+ * The file was removed.
+ */
+"deleted" | 
+/**
+ * The file moved; the old path is in
+ * [`FileActivity::from_path`].
+ */
+"renamed" | 
+/**
+ * The file was only read. Recorded because scope auditing counts
+ * reads outside the declared envelope.
+ */
+"read"
 export type HealthDto = { version: string; uptime_ms: number }
 /**
  * What kind of inbox card the event produces.
@@ -566,9 +878,67 @@ export type HealthDto = { version: string; uptime_ms: number }
  */
 export type InboxKind = "escalation" | "completion" | "side_effect"
 export type LintScore = { rustfmt_clean: boolean | null; clippy_warnings: number | null; biome_diagnostics: number | null; score: number }
-export type Log = { level: LogLevel; stream: LogStream; line: string; tag?: string | null }
-export type LogLevel = "trace" | "debug" | "info" | "warn" | "error"
-export type LogStream = "stdout" | "stderr"
+/**
+ * Payload of an [`EventKind::Log`] — one adapter-normalized output
+ * line.
+ */
+export type Log = { 
+/**
+ * Adapter-assigned severity.
+ */
+level: LogLevel; 
+/**
+ * Stream the line arrived on.
+ */
+stream: LogStream; 
+/**
+ * The line itself, with the vendor's framing removed and the
+ * trailing newline stripped.
+ */
+line: string; 
+/**
+ * Optional adapter-specific classifier (for example the vendor's
+ * own subsystem or tool name).
+ */
+tag?: string | null }
+/**
+ * Severity an adapter assigns to a normalized output line. Vendor
+ * CLIs rarely label their own output, so this is the adapter's
+ * classification, not the CLI's.
+ */
+export type LogLevel = 
+/**
+ * Fine-grained protocol detail.
+ */
+"trace" | 
+/**
+ * Diagnostic detail useful when something went wrong.
+ */
+"debug" | 
+/**
+ * Normal progress narration.
+ */
+"info" | 
+/**
+ * Something recoverable that an operator should notice.
+ */
+"warn" | 
+/**
+ * An error the worker reported but did not necessarily die from.
+ */
+"error"
+/**
+ * Which of the child process's two output streams a line arrived on.
+ */
+export type LogStream = 
+/**
+ * The child's standard output.
+ */
+"stdout" | 
+/**
+ * The child's standard error.
+ */
+"stderr"
 export type MemoryBundleDto = { bundle_id: string; mission_id: string; worker_id: string; turn: number; vendor: string; note_ids: string[] }
 export type MemoryEventDto = { event_id: string; mission_id: string | null; worker_id: string | null; ts: string; kind: MemoryEventKindDto }
 /**
@@ -809,7 +1179,7 @@ kind: string; detail: string } } |
  * * `Manual` — explicit pin set passed in (the legacy
  * [`crate::memory::attach_to_worktree`] path); `mmr_lambda`
  * is always `None`.
- * * `Retrieval` — driven by [`crate::memory::composer::RetrievalBrief`]
+ * * `Retrieval` — driven by [`crate::memory::RetrievalBrief`]
  * through [`crate::memory::MemoryKernel::compose_retrieval`].
  * `mmr_lambda` is `Some(λ)` **iff MMR re-rank actually ran**
  * (i.e. at least one candidate had a stored embedding —
@@ -1050,7 +1420,7 @@ kind: string; detail: string } } |
  * * `Manual` — explicit pin set passed in (the legacy
  * [`crate::memory::attach_to_worktree`] path); `mmr_lambda`
  * is always `None`.
- * * `Retrieval` — driven by [`crate::memory::composer::RetrievalBrief`]
+ * * `Retrieval` — driven by [`crate::memory::RetrievalBrief`]
  * through [`crate::memory::MemoryKernel::compose_retrieval`].
  * `mmr_lambda` is `Some(λ)` **iff MMR re-rank actually ran**
  * (i.e. at least one candidate had a stored embedding —
@@ -1150,7 +1520,23 @@ export type PinNoteResponse =
  * supplied by the frontend.
  */
 export type PinNoteScopeKind = "repo" | "vendor" | "path"
-export type Progress = { percent: number; eta_ms?: number | null; note?: string | null }
+/**
+ * Payload of an [`EventKind::Progress`]. Self-reported by the worker
+ * and therefore advisory — the arbiter never treats it as evidence.
+ */
+export type Progress = { 
+/**
+ * Completion estimate in the range 0.0–100.0.
+ */
+percent: number; 
+/**
+ * Estimated milliseconds remaining, when the worker offers one.
+ */
+eta_ms?: number | null; 
+/**
+ * Short description of what is happening now.
+ */
+note?: string | null }
 export type RegressionScore = { baseline_passed: boolean; current_passed: boolean; newly_failing: string[]; newly_passing: string[]; score: number }
 /**
  * User disposition at mission complete. Only valid from
@@ -1192,14 +1578,21 @@ export type ReworkKind =
  */
 { kind: "split"; sub_tasks: TaskDescriptor[] } | 
 /**
- * Re-run with a constrained scope_paths overlay. Applies to the
- * next pass only. Empty means "no constraint" (Revise-equivalent).
+ * Re-run with a constrained scope_paths overlay. It takes effect on the
+ * next pass and stays in force for every later pass of the same task:
+ * a scope the supervisor judged too wide must not silently re-widen
+ * because the following pass happened to be a plain `Revise`. Only a
+ * later `Narrow` replaces it, and an empty `reduced_scope` is how the
+ * supervisor releases it (the pass falls back to the mission scope).
  * The dispatcher enforces this through the file ACL before integration.
  */
 { kind: "narrow"; reduced_scope: string[] } | 
 /**
- * Re-run with a fully replaced brief. Used in place of
- * `task.title` for the next pass.
+ * Re-run with a fully replaced brief. Used in place of `task.title` from
+ * the next pass onward, and — like `Narrow` — for every later pass of the
+ * task: the supervisor retracted the original brief, so reverting to it on
+ * the following `Revise` would resurrect the work it just replaced. Only a
+ * later `Rebrief` replaces it.
  */
 { kind: "rebrief"; new_brief: string } | 
 /**
@@ -1254,7 +1647,22 @@ export type Severity =
 "action_required"
 export type StartupPhaseDto = "initializing" | "ready" | "failed"
 export type StartupStatusDto = { phase: StartupPhaseDto; error: string | null }
-export type StateChange = { state: WorkerState; from?: WorkerState | null; note?: string | null }
+/**
+ * Payload of an [`EventKind::StateChange`].
+ */
+export type StateChange = { 
+/**
+ * State the worker just entered.
+ */
+state: WorkerState; 
+/**
+ * State it left. Absent on the first announcement.
+ */
+from?: WorkerState | null; 
+/**
+ * Optional human-readable reason for the transition.
+ */
+note?: string | null }
 export type StoredPlaybook = { id: string; json: string }
 export type SuggestedUserAction = 
 /**
@@ -1290,7 +1698,7 @@ export type TaskDescriptor = { index: number; title: string;
  * Index references to other tasks in the same decomposition
  * that must complete before this one starts. Must form a DAG
  * (no cycles, no orphan refs); validated by
- * [`crate::task_graph::validate`] at decomposition emit time.
+ * [`fn@crate::task_graph::validate`] at decomposition emit time.
  */
 depends_on?: number[]; 
 /**
@@ -1318,7 +1726,29 @@ description?: string | null }
 /**
  * Task identity record. `depends_on` drives dependency-aware dispatch.
  */
-export type TaskInfo = { id: string; parent_id: string | null; title: string; depends_on: string[]; created_at: string }
+export type TaskInfo = { 
+/**
+ * Stable task id. Events produced while working this task carry
+ * it as `task_id`.
+ */
+id: string; 
+/**
+ * Enclosing task, for plans decomposed more than one level deep.
+ */
+parent_id: string | null; 
+/**
+ * Operator-facing task title, as shown on the execution map.
+ */
+title: string; 
+/**
+ * Task ids that must reach a terminal state before this one is
+ * dispatchable.
+ */
+depends_on: string[]; 
+/**
+ * RFC 3339 timestamp of task creation.
+ */
+created_at: string }
 /**
  * What kind of work this task represents. The arbiter uses this to
  * pick a default vendor in [`super::role_routing::select_vendor_for_role`].
@@ -1348,9 +1778,58 @@ export type TaskRole =
  * badge them.
  */
 export type TechChoice = { layer: string; choice: string; rationale: string; is_new?: boolean }
-export type TestFailure = { name: string; message: string; file?: string | null; line?: number | null }
+/**
+ * One failing test inside a [`TestResult`].
+ */
+export type TestFailure = { 
+/**
+ * Test name as the runner printed it.
+ */
+name: string; 
+/**
+ * Assertion or panic message.
+ */
+message: string; 
+/**
+ * Source file, when the runner reports one.
+ */
+file?: string | null; 
+/**
+ * 1-based line in `file`, when the runner reports one.
+ */
+line?: number | null }
 export type TestPassScore = { ran: boolean; passed: number; failed: number; skipped: number; score: number }
-export type TestResult = { suite: string; passed: number; failed: number; skipped: number; duration_ms: number; failures?: TestFailure[] | null }
+/**
+ * Payload of an [`EventKind::TestResult`] — the outcome of one test
+ * run. The arbiter's regression scorer compares these across the
+ * baseline and the submission.
+ */
+export type TestResult = { 
+/**
+ * Suite or runner name (for example `cargo test`, `vitest`).
+ */
+suite: string; 
+/**
+ * Count of passing tests.
+ */
+passed: number; 
+/**
+ * Count of failing tests.
+ */
+failed: number; 
+/**
+ * Count of skipped or ignored tests.
+ */
+skipped: number; 
+/**
+ * Wall-clock duration of the run, in milliseconds.
+ */
+duration_ms: number; 
+/**
+ * Per-test detail. `None` means the adapter could not extract
+ * detail, which is not the same as an empty list (no failures).
+ */
+failures?: TestFailure[] | null }
 /**
  * One unresolved issue surfaced by the mission. Sum type with one
  * variant per producer event class.
@@ -1402,7 +1881,44 @@ export type UnresolvedIssue =
  * schema-version bump; removing requires a major bump (see
  * [`SCHEMA_VERSION`]). `Aider` was removed in 2.0.
  */
-export type Vendor = "claude" | "codex" | "gemini" | "antigravity" | "kiro" | "copilot" | "opencode" | "mock"
+export type Vendor = 
+/**
+ * Anthropic Claude Code CLI. Wire name `claude`.
+ */
+"claude" | 
+/**
+ * OpenAI Codex CLI. Wire name `codex`.
+ */
+"codex" | 
+/**
+ * Legacy Gemini CLI, kept as an enterprise compatibility path
+ * after consumer Login with Google ended. Wire name `gemini`.
+ */
+"gemini" | 
+/**
+ * Google Antigravity CLI. Wire name `antigravity`.
+ */
+"antigravity" | 
+/**
+ * AWS Kiro, driven through a stored vendor profile. Wire name
+ * `kiro`.
+ */
+"kiro" | 
+/**
+ * GitHub Copilot CLI, driven through a stored vendor profile.
+ * Wire name `copilot`.
+ */
+"copilot" | 
+/**
+ * OpenCode. Reserved by the schema; no adapter crate ships yet
+ * (see `docs/GOOD_FIRST_ISSUES.md`). Wire name `opencode`.
+ */
+"opencode" | 
+/**
+ * The credential-free mock harness used by demos and tests. Wire
+ * name `mock`.
+ */
+"mock"
 /**
  * Emitted to the frontend on each canonical worker event.
  * Transparent newtype so the wire payload is exactly the canonical
@@ -1413,7 +1929,46 @@ export type WorkerEvent = Event
  * Worker identity record (§2). The orchestrator builds this at spawn
  * time and persists it; events reference the worker by `id`.
  */
-export type WorkerInfo = { id: string; name: string; vendor: Vendor; cli_binary: string; cli_version: string | null; cwd: string; model: string | null; spawned_at: string; ended_at: string | null }
+export type WorkerInfo = { 
+/**
+ * Stable worker id. Every [`Event`] this worker emits carries it
+ * as `worker_id`.
+ */
+id: string; 
+/**
+ * Operator-facing display name shown on the station canvas.
+ */
+name: string; 
+/**
+ * Which vendor CLI backs this worker.
+ */
+vendor: Vendor; 
+/**
+ * Executable actually spawned, as resolved on `PATH`.
+ */
+cli_binary: string; 
+/**
+ * Version string the CLI reported at spawn, when it reports one.
+ */
+cli_version: string | null; 
+/**
+ * Working directory the CLI was spawned in — the worker's own
+ * git worktree, not the operator's repository root.
+ */
+cwd: string; 
+/**
+ * Model the worker was asked to run, when the vendor exposes a
+ * model selector.
+ */
+model: string | null; 
+/**
+ * RFC 3339 timestamp of spawn.
+ */
+spawned_at: string; 
+/**
+ * RFC 3339 timestamp of process exit; `None` while running.
+ */
+ended_at: string | null }
 export type WorkerModelSwitchDto = { worker_id: string; model: string; detail: string }
 /**
  * Phase 1 (decisions.md entry 6 — Single supervisor per mission,
@@ -1432,7 +1987,36 @@ export type WorkerRole = "supervisor" | "employee"
  * announces `Idle` first, then advances the worker until it lands
  * on `Done`, `Failed`, or `Blocked`.
  */
-export type WorkerState = "idle" | "planning" | "executing" | "blocked" | "reviewing" | "done" | "failed"
+export type WorkerState = 
+/**
+ * Spawned, nothing started yet. Every adapter announces this
+ * first.
+ */
+"idle" | 
+/**
+ * Deciding what to do before touching the worktree.
+ */
+"planning" | 
+/**
+ * Actively working the task.
+ */
+"executing" | 
+/**
+ * Waiting on a dependency; see [`Dependency`].
+ */
+"blocked" | 
+/**
+ * Work is submitted and awaiting the arbiter's audit.
+ */
+"reviewing" | 
+/**
+ * Terminal: the task finished successfully.
+ */
+"done" | 
+/**
+ * Terminal: the task did not finish; see [`Failure`].
+ */
+"failed"
 
 /** tauri-specta globals **/
 
