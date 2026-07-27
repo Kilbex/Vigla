@@ -2,7 +2,7 @@
   "name": "vigla-app",
   "private": true,
   "version": "0.1.0",
-  "description": "Local-first mission control for supervised AI coding CLIs",
+  "description": "Open-source mission control for coding agents",
   "license": "Apache-2.0",
   "homepage": "https://kilbex.github.io/Vigla/",
   "repository": {

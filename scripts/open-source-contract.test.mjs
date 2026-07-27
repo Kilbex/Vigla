@@ -58,11 +58,16 @@ const rustToolchain = await readFile(
   "utf8",
 );
 const readme = await readFile(new URL("../README.md", import.meta.url), "utf8");
+const llmsSummary = await readFile(new URL("../llms.txt", import.meta.url), "utf8");
 const creatorKit = await readFile(
   new URL("../docs/operations/creator-kit.md", import.meta.url),
   "utf8",
 );
 const siteHtml = await readFile(new URL("../site/index.html", import.meta.url), "utf8");
+const socialPreviewSource = await readFile(
+  new URL("../docs/media/social-preview.svg", import.meta.url),
+  "utf8",
+);
 const contributing = await readFile(
   new URL("../CONTRIBUTING.md", import.meta.url),
   "utf8",
@@ -83,6 +88,7 @@ test("workspace and private app publish canonical project metadata", () => {
   assert.match(rootCargo, /^readme = "README\.md"$/m);
 
   assert.equal(appPackage.private, true);
+  assert.equal(appPackage.description, "Open-source mission control for coding agents");
   assert.equal(appPackage.license, "Apache-2.0");
   assert.equal(appPackage.repository?.url, `${repoUrl}.git`);
   assert.equal(appPackage.homepage, "https://kilbex.github.io/Vigla/");
@@ -290,6 +296,15 @@ test("the owner bootstrap applies converging, limit-respecting repository metada
   assert.ok(description.length <= 160, `description is ${description.length} characters`);
   assert.ok(topics.length <= 20, `${topics.length} topics exceeds the GitHub cap`);
   assert.equal(new Set(topics).size, topics.length, "topics must be unique");
+  assert.match(description, /^Open-source mission control for coding agents\./);
+  for (const requiredTopic of [
+    "agent-orchestration",
+    "coding-agents",
+    "multi-agent-systems",
+    "open-source",
+  ]) {
+    assert.ok(topics.includes(requiredTopic), `missing discovery topic ${requiredTopic}`);
+  }
   for (const topic of topics) {
     assert.match(topic, /^[a-z0-9][a-z0-9-]{0,49}$/, `invalid topic ${topic}`);
   }
@@ -302,6 +317,44 @@ test("the owner bootstrap applies converging, limit-respecting repository metada
   assert.match(githubBootstrap, /`repos\/\$\{repository\}\/automated-security-fixes`/);
   assert.match(githubBootstrap, /`repos\/\$\{repository\}\/pages`/);
   assert.match(githubBootstrap, /build_type: "workflow"/);
+});
+
+test("the project front door publishes crawlable product and social metadata", () => {
+  assert.match(
+    siteHtml,
+    /<title>Vigla — Open-source mission control for coding agents<\/title>/,
+  );
+  assert.match(
+    siteHtml,
+    /<link rel="canonical" href="https:\/\/kilbex\.github\.io\/Vigla\/" \/>/,
+  );
+  assert.match(siteHtml, /<meta name="robots" content="index,follow,max-image-preview:large" \/>/);
+
+  const payload = siteHtml.match(
+    /<script type="application\/ld\+json">\s*([\s\S]*?)\s*<\/script>/,
+  )?.[1];
+  assert.ok(payload, "site must publish JSON-LD");
+  const graph = JSON.parse(payload)["@graph"];
+  assert.ok(Array.isArray(graph), "JSON-LD must publish a graph");
+  assert.ok(graph.some((entry) => entry["@type"] === "WebSite"));
+  const software = graph.find((entry) => entry["@type"] === "SoftwareApplication");
+  assert.equal(software?.codeRepository, repoUrl);
+  assert.equal(software?.softwareVersion, appPackage.version);
+  assert.equal(software?.isAccessibleForFree, true);
+  assert.deepEqual(software?.offers, {
+    "@type": "Offer",
+    price: "0",
+    priceCurrency: "USD",
+  });
+
+  assert.match(readme, /docs\/media\/social-preview\.svg/);
+  assert.match(socialPreviewSource, /<svg[^>]+width="1280"[^>]+height="640"/);
+  assert.match(
+    socialPreviewSource,
+    /<title id="title">Vigla — supervise the merge, not every terminal<\/title>/,
+  );
+  assert.match(llmsSummary, /Open-source mission control for coding agents\./);
+  assert.doesNotMatch(llmsSummary, /<(?:a|strong)\b|&nbsp;/);
 });
 
 test("pinned issues and required checks name things that actually exist", () => {

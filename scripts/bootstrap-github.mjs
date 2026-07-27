@@ -12,7 +12,7 @@ import { issueSeeds, labels } from "../.github/issue-seeds.mjs";
  * owner-run script drifts silently from whatever the launch docs claim.
  */
 export const description =
-  "Mission control for AI coding agents — run Claude Code, Codex, Antigravity, and more as one supervised team. Every submission audited; every mission reversible.";
+  "Open-source mission control for coding agents. Run cross-vendor workers in isolated worktrees, audit every submission, and revert an entire mission.";
 
 export const topics = [
   "ai-agents",
@@ -20,21 +20,21 @@ export const topics = [
   "claude-code",
   "codex",
   "antigravity",
-  "coding-assistant",
-  "multi-agent",
+  "coding-agents",
+  "multi-agent-systems",
   "developer-tools",
   "rust",
   "tauri",
   "react",
   "macos",
-  "llm",
+  "cli",
   "local-first",
-  "llm-agents",
   "autonomous-agents",
   "code-review",
   "developer-productivity",
   "desktop-app",
   "git-worktrees",
+  "open-source",
 ];
 
 /**

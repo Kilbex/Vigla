@@ -47,11 +47,17 @@ function intro(markdown) {
   const firstSection = markdown.indexOf("\n## ");
   return markdown
     .slice(0, firstSection)
+    .replace(/<p align="center">\s*<img[\s\S]*?<\/p>/g, "")
+    .replace(
+      /<p align="center">\s*<strong>([^<]+)<\/strong><br \/>\s*([\s\S]*?)<\/p>/,
+      (_match, heading, body) => `${heading}\n${body.replace(/^\s+/gm, "")}`,
+    )
+    .replace(/<p align="center">[\s\S]*?<\/p>/g, "")
     .split("\n")
     .filter((line) => {
       const trimmed = line.trim();
       return (
-        !/^<\/?(?:a|div|sub)\b/.test(trimmed) &&
+        !/^<\/?(?:a|div|p|sub)\b/.test(trimmed) &&
         !/^<img\b/.test(trimmed) &&
         !/^!\[/.test(trimmed) &&
         !/^\[!\[/.test(trimmed) &&

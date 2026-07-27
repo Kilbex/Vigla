@@ -15,7 +15,7 @@ test.describe("GitHub Pages launch surface", () => {
 
     const response = await page.goto("/Vigla/", { waitUntil: "networkidle" });
     expect(response?.ok()).toBe(true);
-    await expect(page).toHaveTitle("Vigla — supervised AI coding agent operations");
+    await expect(page).toHaveTitle("Vigla — Open-source mission control for coding agents");
     await expect(page.locator('link[rel="canonical"]')).toHaveAttribute(
       "href",
       "https://kilbex.github.io/Vigla/",
@@ -26,16 +26,30 @@ test.describe("GitHub Pages launch surface", () => {
     );
     await expect(page.locator('meta[property="og:image:alt"]')).toHaveAttribute(
       "content",
-      /supervise the merge, not every terminal/i,
+      /four isolated coding-agent work lines/i,
     );
     await expect(page.locator('meta[name="twitter:image:alt"]')).toHaveAttribute(
       "content",
-      /coding agents working in parallel/i,
+      /coding-agent work lines/i,
     );
+    const structuredData = JSON.parse(
+      (await page.locator('script[type="application/ld+json"]').textContent()) ?? "{}",
+    );
+    const software = structuredData["@graph"]?.find(
+      (entry: { "@type"?: string }) => entry["@type"] === "SoftwareApplication",
+    );
+    expect(software).toMatchObject({
+      name: "Vigla",
+      applicationCategory: "DeveloperApplication",
+      operatingSystem: "macOS 12 or later",
+      isAccessibleForFree: true,
+      codeRepository: "https://github.com/Kilbex/Vigla",
+      offers: { price: "0", priceCurrency: "USD" },
+    });
     // The page must not sell the replay as a capture of a real session; the
     // events are hand-authored in app/src/demo/recordings.ts.
     await expect(page.locator(".visual-status .status-live")).toHaveText(
-      "SCRIPTED REPLAY · NO VENDOR CALLS",
+      "Scripted replay · no vendor calls",
     );
     await expect(page.getByRole("heading", { level: 1 })).toContainText(
       "Supervise the merge",
@@ -70,7 +84,7 @@ test.describe("GitHub Pages launch surface", () => {
     await page.getByRole("button", { name: "Stop preview" }).click();
     await expect(heroImage).toHaveAttribute("src", /vigla-demo-poster\.webp$/);
 
-    await page.getByRole("link", { name: "Watch the replay" }).click();
+    await page.getByRole("link", { name: "Open the 16-second replay" }).click();
     await expect(page).toHaveURL(/\/Vigla\/demo\/$/);
     await expect(page.getByRole("region", { name: "Scripted replay demo" })).toBeVisible();
     await expect(page.locator(".station")).toHaveCount(3);

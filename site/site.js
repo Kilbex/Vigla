@@ -13,7 +13,7 @@ function setPreviewControl({ playing, busy = false }) {
   previewButton.setAttribute("aria-pressed", String(playing));
   if (icon) icon.textContent = busy ? "…" : playing ? "■" : "▶";
   if (title) title.textContent = busy ? "Loading preview" : playing ? "Stop preview" : "Play 16-second preview";
-  if (detail) detail.textContent = playing ? "return to the still frame" : "2.1 MB · scripted replay";
+  if (detail) detail.textContent = playing ? "return to the still frame" : "2.1 MB · deterministic events";
 }
 
 previewButton?.addEventListener("click", () => {

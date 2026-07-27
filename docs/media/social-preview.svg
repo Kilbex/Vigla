@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-labelledby="title desc">
+  <title id="title">Vigla — supervise the merge, not every terminal</title>
+  <desc id="desc">An editorial dispatch card showing four isolated work lines converging through an audit gate into one reversible merge.</desc>
+  <defs>
+    <pattern id="paper" width="28" height="28" patternUnits="userSpaceOnUse">
+      <path d="M0 27.5H28M27.5 0V28" fill="none" stroke="#122536" stroke-opacity=".035"/>
+      <circle cx="5" cy="8" r=".8" fill="#122536" fill-opacity=".06"/>
+      <circle cx="20" cy="19" r=".55" fill="#c84337" fill-opacity=".06"/>
+    </pattern>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0 10 5 0 10Z" fill="#122536"/>
+    </marker>
+  </defs>
+
+  <rect width="1280" height="640" fill="#eee7d7"/>
+  <rect width="1280" height="640" fill="url(#paper)"/>
+  <rect x="32" y="32" width="1216" height="576" fill="none" stroke="#122536" stroke-width="2"/>
+  <path d="M32 116H1248" stroke="#122536" stroke-width="2"/>
+
+  <g fill="#122536" font-family="SFMono-Regular, Consolas, monospace" font-size="14" font-weight="700" letter-spacing="2">
+    <text x="62" y="78">FIELD DISPATCH / 001</text>
+    <text x="1015" y="78">OPEN SOURCE · macOS</text>
+  </g>
+  <circle cx="971" cy="73" r="7" fill="#c84337"/>
+
+  <g fill="#122536">
+    <text x="62" y="242" font-family="Georgia, Times New Roman, serif" font-size="112" font-weight="700" letter-spacing="-5">Vigla</text>
+    <text x="68" y="292" font-family="Georgia, Times New Roman, serif" font-size="30" font-style="italic">the watchpost for coding-agent work</text>
+  </g>
+  <path d="M68 317c92-9 213-7 345-2" fill="none" stroke="#c84337" stroke-width="8" stroke-linecap="round"/>
+
+  <g fill="#122536" font-family="SFMono-Regular, Consolas, monospace" font-size="20">
+    <text x="68" y="384">SUPERVISE THE MERGE.</text>
+    <text x="68" y="418">NOT EVERY TERMINAL.</text>
+  </g>
+
+  <g transform="rotate(-1 290 510)">
+    <rect x="62" y="466" width="454" height="88" fill="#122536"/>
+    <text x="88" y="504" fill="#eee7d7" font-family="SFMono-Regular, Consolas, monospace" font-size="15" font-weight="700" letter-spacing="1.4">ISOLATED WORKTREES → AUDIT → REVERT</text>
+    <text x="88" y="530" fill="#a9c2c4" font-family="SFMono-Regular, Consolas, monospace" font-size="14">github.com/Kilbex/Vigla</text>
+  </g>
+
+  <g transform="translate(612 146)">
+    <path d="M0 0H568V404H0Z" fill="#e6ddca" stroke="#122536" stroke-width="2"/>
+    <path d="M20 21H548" stroke="#122536" stroke-width="1" stroke-dasharray="5 7"/>
+    <text x="22" y="51" fill="#122536" font-family="SFMono-Regular, Consolas, monospace" font-size="13" font-weight="700" letter-spacing="1.5">ONE MISSION / FOUR WORK LINES / ONE VERDICT</text>
+
+    <g fill="#eee7d7" stroke="#122536" stroke-width="2">
+      <rect x="22" y="86" width="116" height="46"/><rect x="22" y="154" width="116" height="46"/>
+      <rect x="22" y="222" width="116" height="46"/><rect x="22" y="290" width="116" height="46"/>
+    </g>
+    <g fill="#122536" font-family="SFMono-Regular, Consolas, monospace" font-size="13" font-weight="700">
+      <text x="42" y="115">WORK / 01</text><text x="42" y="183">WORK / 02</text>
+      <text x="42" y="251">WORK / 03</text><text x="42" y="319">WORK / 04</text>
+    </g>
+
+    <g fill="none" stroke="#122536" stroke-width="2.5" marker-end="url(#arrow)">
+      <path d="M138 109C220 109 220 173 288 173"/><path d="M138 177H288"/>
+      <path d="M138 245H288"/><path d="M138 313C220 313 220 249 288 249"/>
+    </g>
+
+    <g transform="rotate(-2 347 211)">
+      <rect x="288" y="151" width="118" height="118" fill="#c84337" stroke="#122536" stroke-width="2"/>
+      <circle cx="347" cy="210" r="40" fill="none" stroke="#eee7d7" stroke-width="3"/>
+      <path d="M329 211l12 12 27-31" fill="none" stroke="#eee7d7" stroke-width="5" stroke-linecap="square"/>
+      <text x="318" y="294" fill="#122536" font-family="SFMono-Regular, Consolas, monospace" font-size="12" font-weight="700">AUDIT GATE</text>
+    </g>
+
+    <path d="M406 210H452" fill="none" stroke="#122536" stroke-width="3" marker-end="url(#arrow)"/>
+    <rect x="456" y="164" width="90" height="92" fill="#122536"/>
+    <text x="470" y="197" fill="#eee7d7" font-family="SFMono-Regular, Consolas, monospace" font-size="12" font-weight="700">MERGE</text>
+    <text x="470" y="219" fill="#a9c2c4" font-family="SFMono-Regular, Consolas, monospace" font-size="11">VERDICT</text>
+    <path d="M472 235H529" stroke="#c84337" stroke-width="5"/>
+    <text x="443" y="332" fill="#122536" font-family="Georgia, Times New Roman, serif" font-size="22" font-style="italic">reversible</text>
+  </g>
+
+  <g transform="rotate(2 1144 582)">
+    <rect x="1052" y="560" width="169" height="35" fill="#487989"/>
+    <text x="1068" y="583" fill="#eee7d7" font-family="SFMono-Regular, Consolas, monospace" font-size="12" font-weight="700" letter-spacing="1">APACHE-2.0</text>
+  </g>
+</svg>
