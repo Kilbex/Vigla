@@ -60,7 +60,7 @@ fastembed = { version = "5", optional = true }
 dirs = { version = "5", optional = true }
 
 [dev-dependencies]
-criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
+criterion = { version = "0.8", features = ["html_reports", "async_tokio"] }
 proptest = "1.5"
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
